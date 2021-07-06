@@ -58,6 +58,9 @@ class ProductComponentModel(object):
     tau_cm: This is the minimum amount of time that a component should remain useful for if it will be eligible for reuse
     tau_pr: This is the minimum amount of time that a product should be expected to remain functional for it to be eligible to get a spare part
 
+    d: Death rate 
+    b: Birth rate
+
     pdf_pr: probability density function of product, distribution of outflow from a specific age-cohort
     pdf_cm: probability density function of component, distribution of outflow from a specific age-cohort
     
@@ -73,7 +76,7 @@ class ProductComponentModel(object):
     Basic initialisation and dimension check methods
     """
 
-    def __init__(self, t=None, i_pr=None, i_cm=None, o_pr=None, o_cm=None, s_pr=None, s_cm=None, lt_pr=None, lt_cm=None, sc_pr=None, sc_cm=None, oc_pr=None, oc_cm=None, name='PCM', pdf_pr=None, pdf_cm=None, sf_pr=None, sf_cm=None, r=None, tau_cm=None, tau_pr=None):
+    def __init__(self, t=None, i_pr=None, i_cm=None, o_pr=None, o_cm=None, s_pr=None, s_cm=None, lt_pr=None, lt_cm=None, sc_pr=None, sc_cm=None, oc_pr=None, oc_cm=None, name='PCM', pdf_pr=None, pdf_cm=None, sf_pr=None, sf_cm=None, r=None, tau_cm=None, tau_pr=None, d=None, b=None):
         """ Init function. Assign the input data to the instance of the object."""
         self.t = t  # optional
 
@@ -113,8 +116,11 @@ class ProductComponentModel(object):
         self.name = name  # optional
 
         self.r = r # optional
-        self.tau_cm = tau_cm
-        self.tau_pr = tau_pr
+        self.tau_cm = tau_cm # optional
+        self.tau_pr = tau_pr # optional
+
+        self.d = d # optional
+        self.b = b # optional
 
         self.pdf_pr = pdf_pr # optional
         self.sf_pr  = sf_pr # optional
@@ -288,11 +294,11 @@ class ProductComponentModel(object):
                 self.i_cm = self.i_pr
                 return self.sc_pr, self.sc_cm, self.i_pr, self.i_cm, self.oc_pr, self.oc_cm
             else:
-                # No lifetime specified
+                raise Exception('No lifetime specified')
                 return None, None, None, None, None, None
         else:
-                # No stock specified
-                return None, None, None, None, None, None
+            raise Exception('No stock specified')
+            return None, None, None, None, None, None
                 
     def case_2(self):
         '''
@@ -304,47 +310,50 @@ class ProductComponentModel(object):
         It is more suitable if the stock is approximately constant.  
         '''
         if self.s_pr is not None:
-            if self.lt_pr is not None: 
-                self.sc_pr = np.zeros((len(self.t), len(self.t)))
-                self.oc_pr = np.zeros((len(self.t), len(self.t)))
-                self.i_pr = np.zeros(len(self.t))
-                self.sc_cm = np.zeros((len(self.t), len(self.t)))
-                self.oc_cm = np.zeros((len(self.t), len(self.t)))
-                self.i_cm = np.zeros(len(self.t))
-                self.ds_pr = np.concatenate((np.array([0]), np.diff(self.s_pr)))
+            if self.lt_pr is not None:
+                if self.r is not None:  
+                    self.sc_pr = np.zeros((len(self.t), len(self.t)))
+                    self.oc_pr = np.zeros((len(self.t), len(self.t)))
+                    self.i_pr = np.zeros(len(self.t))
+                    self.sc_cm = np.zeros((len(self.t), len(self.t)))
+                    self.oc_cm = np.zeros((len(self.t), len(self.t)))
+                    self.i_cm = np.zeros(len(self.t))
+                    self.ds_pr = np.concatenate((np.array([0]), np.diff(self.s_pr)))
 
-                # construct the sf of a product of cohort tc remaining in the stock in year t
-                self.compute_sf_pr() # Computes sf if not present already.
-                if self.sf_pr[0, 0] != 0: # Else, inflow is 0.
-                    self.i_pr[0] = self.s_pr[0] / self.sf_pr[0, 0]
-                    self.i_cm[0] = self.i_pr[0]
-                self.sc_cm[:, 0] = self.i_cm[0] * self.sf_pr[:, 0] # Future decay of age-cohort of year 0.
-                self.oc_cm[0, 0] = self.i_cm[0] - self.sc_cm[0, 0]
-                self.sc_pr[:, 0] = self.i_pr[0] * self.sf_pr[:, 0] # Future decay of age-cohort of year 0.
-                self.oc_pr[0, 0] = self.i_pr[0] - self.sc_pr[0, 0]
-                # all other years:            
-                for m in range(1, len(self.t)):  # for all years m, starting in second year
-                    # 1) Compute outflow from previous age-cohorts up to m-1
-                    self.oc_pr[m, 0:m] = self.sc_pr[m-1, 0:m] - self.sc_pr[m, 0:m] # outflow table is filled row-wise, for each year m.
-                    self.oc_cm[m, 0:m] = self.oc_pr[m, 0:m]*(1+self.r) # outflow table is filled row-wise, for each year m. We multiply with the replacement rate
-                    # 2) Determine inflow from mass balance:
-                    
-                    if self.sf_pr[m,m] != 0: # Else, inflow is 0.
-                        self.i_pr[m] = (self.s_pr[m] - self.sc_pr[m, :].sum()) #/ self.sf_pr[m,m] # allow for outflow during first year by rescaling with 1/sf[m,m]
-                        self.i_cm[m] = self.ds_pr[m] +  self.oc_cm.sum(axis=1)[m]
-                    # 3) Add new inflow to stock and determine future decay of new age-cohort
-                    self.sc_pr[m::, m] = self.i_pr[m] * self.sf_pr[m::, m]
-                    self.oc_pr[m, m]   = self.i_pr[m] * (1 - self.sf_pr[m, m])
-                    self.sc_cm[m::, m] = self.i_cm[m] * self.sf_pr[m::, m]
-                    self.oc_cm[m, m]   = (self.i_cm[m] * (1 - self.sf_pr[m, m]))*(1+self.r)
-            
-                return self.sc_pr, self.sc_cm, self.i_pr, self.i_cm, self.oc_pr, self.oc_cm
+                    # construct the sf of a product of cohort tc remaining in the stock in year t
+                    self.compute_sf_pr() # Computes sf if not present already.
+                    if self.sf_pr[0, 0] != 0: # Else, inflow is 0.
+                        self.i_pr[0] = self.s_pr[0] / self.sf_pr[0, 0]
+                        self.i_cm[0] = self.i_pr[0]
+                    self.sc_cm[:, 0] = self.i_cm[0] * self.sf_pr[:, 0] # Future decay of age-cohort of year 0.
+                    self.oc_cm[0, 0] = self.i_cm[0] - self.sc_cm[0, 0]
+                    self.sc_pr[:, 0] = self.i_pr[0] * self.sf_pr[:, 0] # Future decay of age-cohort of year 0.
+                    self.oc_pr[0, 0] = self.i_pr[0] - self.sc_pr[0, 0]
+                    # all other years:            
+                    for m in range(1, len(self.t)):  # for all years m, starting in second year
+                        # 1) Compute outflow from previous age-cohorts up to m-1
+                        self.oc_pr[m, 0:m] = self.sc_pr[m-1, 0:m] - self.sc_pr[m, 0:m] # outflow table is filled row-wise, for each year m.
+                        self.oc_cm[m, 0:m] = self.oc_pr[m, 0:m]*(1+self.r) # outflow table is filled row-wise, for each year m. We multiply with the replacement rate
+                        # 2) Determine inflow from mass balance:
+                        
+                        if self.sf_pr[m,m] != 0: # Else, inflow is 0.
+                            self.i_pr[m] = (self.s_pr[m] - self.sc_pr[m, :].sum()) #/ self.sf_pr[m,m] # allow for outflow during first year by rescaling with 1/sf[m,m]
+                            self.i_cm[m] = self.ds_pr[m] +  self.oc_cm.sum(axis=1)[m]
+                        # 3) Add new inflow to stock and determine future decay of new age-cohort
+                        self.sc_pr[m::, m] = self.i_pr[m] * self.sf_pr[m::, m]
+                        self.oc_pr[m, m]   = self.i_pr[m] * (1 - self.sf_pr[m, m])
+                        self.sc_cm[m::, m] = self.i_cm[m] * self.sf_pr[m::, m]
+                        self.oc_cm[m, m]   = (self.i_cm[m] * (1 - self.sf_pr[m, m]))*(1+self.r)
+                    return self.sc_pr, self.sc_cm, self.i_pr, self.i_cm, self.oc_pr, self.oc_cm
+                else:
+                    raise Exception('No replacement rate specified')
+                    return None, None, None, None, None, None
             else:
-                # No lifetime specified
+                raise Exception('No lifetime specified')
                 return None, None, None, None, None, None
         else:
-                # No stock specified
-                return None, None, None, None, None, None
+            raise Exception('No stock specified')
+            return None, None, None, None, None, None
 
     def case_3(self):
         '''
@@ -381,11 +390,11 @@ class ProductComponentModel(object):
 
                     # construct the sf of a product of cohort tc remaining in the stock in year t
                     self.compute_sf_pr() # Computes sf if not present already.
-                    self.compute_sf_cm() # Computes sf od component if not present already.
+                    self.compute_sf_cm() # Computes sf of component if not present already.
                     # all other years:            
                     for m in range(1, len(self.t)):  # for all years m, starting in second year
                         # 1) Compute outflow from previous age-cohorts up to m-1
-                        if self.sf_pr[m,m] != 0: # Else, inflow is 0.
+                        if self.sf_pr[m,m] != 0 and self.sf_cm[m,m] != 0: # Else, inflow is 0.
                             self.oc_pr[m, 0:m] = self.sc_pr[m-1, 0:m]/self.sf_pr[m-1,0:m] * abs((self.sf_pr[m, 0:m] - self.sf_pr[m-1, 0:m]))  # Calculating outflows attributed to product failures
                             self.oc_cm[m, 0:m] = (self.sc_pr[m-1, 0:m] - self.oc_pr[m, 0:m])/self.sf_cm[m-1,0:m] * abs((self.sf_cm[m, 0:m] - self.sf_cm[m-1, 0:m]))# Calculating outflows attributed to component failures
                             self.sc_pr[m,0:m] = self.sc_pr[m-1,:m] - self.oc_pr[m, 0:m] - self.oc_cm[m, 0:m] # Computing real stock
@@ -394,19 +403,18 @@ class ProductComponentModel(object):
                              #/ self.sf_pr[m,m] # allow for outflow during first year by rescaling with 1/sf[m,m]
                             #self.i_cm[m] = self.ds_pr[m] +  self.oc_cm.sum(axis=1)[m]
                         # 3) Add new inflow to stock and determine future decay of new age-cohort
-                        
                         self.i_pr[m] = self.ds_pr[m] + self.oc_pr.sum(axis=1)[m] + self.oc_cm.sum(axis=1)[m]
                         self.i_cm[m] = self.i_pr[m]
                         self.sc_pr[m,m] = self.i_pr[m]
                     return self.sc_pr, self.sc_cm, self.i_pr, self.i_cm, self.oc_pr, self.oc_cm
                 else:
-                    # No product lifetime specified
+                    raise Exception('No product lifetime specified')
                     return None, None, None, None, None, None
             else:
-                    # No component lifetime specified
+                raise Exception('No component lifetime specified')
                 return None, None, None, None, None, None
         else:
-                # No stock specified
+            raise Exception('No stock specified')
             return None, None, None, None, None, None
                 
     def case_4(self):
@@ -450,7 +458,7 @@ class ProductComponentModel(object):
                         for m in range(1, len(self.t)):  # for all years m, starting in second year
                             # 1) Compute outflow from previous age-cohorts up to m-1
                             if self.sf_pr[m,m] != 0 and self.sf_cm[m,m] != 0: # Else, inflow is 0.
-                                self.oc_cm[m, 0:m] = self.sc_pr[m-1, 0:m]/self.sf_cm[m-1,0:m] * abs((self.sf_cm[m, 0:m] - self.sf_cm[m-1, 0:m]))# Calculating outflows attributed to component failures FIXME: Truedev gives a warning for some values
+                                self.oc_cm[m, 0:m] = self.sc_pr[m-1, 0:m]/self.sf_cm[m-1,0:m] * abs((self.sf_cm[m, 0:m] - self.sf_cm[m-1, 0:m]))# FIXME: Truedev gives a warning for some values
                                 self.oc_pr[m, 0:m] = (self.sc_pr[m-1, 0:m] - self.oc_cm[m, 0:m])/self.sf_pr[m-1,0:m] * abs((self.sf_pr[m, 0:m] - self.sf_pr[m-1, 0:m]))  # Calculating outflows attributed to product failures
                                 self.sc_pr[m,0:m] = self.sc_pr[m-1,:m] - self.oc_pr[m, 0:m] - self.oc_cm[m, 0:m] # Computing real stock
                                 # defining the share of components that is useful
@@ -468,16 +476,16 @@ class ProductComponentModel(object):
 
                         return self.sc_pr, self.sc_cm, self.i_pr, self.i_cm, self.oc_pr, self.oc_cm
                     else:
-                        # No delay specified
+                        raise Exception('No delay specified')
                         return None, None, None, None, None, None
                 else:
-                    # No product lifetime specified
+                    raise Exception('No product lifetime specified')
                     return None, None, None, None, None, None
             else:
-                    # No component lifetime specified
+                raise Exception('No component lifetime specified')
                 return None, None, None, None, None, None
         else:
-                # No stock specified
+            raise Exception('No stock specified')
             return None, None, None, None, None, None
             
 
@@ -531,20 +539,21 @@ class ProductComponentModel(object):
                             for c in range(m+1):
                             # 1) Compute outflow from previous age-cohorts up to m-1
                                 if  self.sf_cm[m-1,c] != 0 and self.sf_pr[m-1,c] != 0 and m+self.tau_pr < len(self.t): # Else, inflow is 0.
+                                    
                                     self.oc_pr[m, c] = self.sc_pr[m-1, c] /self.sf_pr[m-1,c] * abs((self.sf_pr[m, c] - self.sf_pr[m-1, c]))  # alculating outflows attributed to product failures
                                     self.oc_cm[m, c] = (self.sc_pr[m-1, c]- self.oc_pr[m, c])/self.sf_cm[m-1,c] * abs((self.sf_cm[m, c] - self.sf_cm[m-1, c]))# Calculating outflows attributed to component failures 
                                     # Defining the amount of products eligible for component replacement 
-                                    replacement[m,c] = (1-self.sf_pr[m+self.tau_pr, c]) * self.oc_cm[m, c]
+                                    replacement[m,c] = (self.sf_pr[m+self.tau_pr, c]) * self.oc_cm[m, c]
                                     # Correcting outflows
                                     self.oc_pr[m, c] = self.oc_pr[m, c]+ self.oc_cm[m, c]  - replacement[m,c]
-                                    self.oc_cm[m, c] = self.oc_cm[m, c] + self.sc_pr[m-1, c] /self.sf_pr[m-1,c] * abs((self.sf_pr[m, c] - self.sf_pr[m-1, c]))
+                                    self.oc_cm[m, c] = self.oc_pr[m, c] +  replacement[m,c]
                                     self.sc_pr[m,c] = self.sc_pr[m-1,c] - self.oc_pr[m, c]  # Computing real stock
                                     self.sc_cm[m,c] = self.sc_cm[m-1,c] - self.oc_cm[m,c]
                                 elif self.sf_pr[m-1,c] != 0 and self.sf_cm[m-1,c] != 0: # Else, inflow is 0.
                                     self.oc_pr[m, c] = self.sc_pr[m-1, c] /self.sf_pr[m-1,c] * abs((self.sf_pr[m, c] - self.sf_pr[m-1, c]))  # alculating outflows attributed to product failures
                                     self.oc_cm[m, c] = (self.sc_pr[m-1, c]- self.oc_pr[m, c])/self.sf_cm[m-1,c] * abs((self.sf_cm[m, c] - self.sf_cm[m-1, c]))# Calculating outflows attributed to component failures 
                                     # Defining the amount of products eligible for component replacement 
-                                    replacement[m,c] = (1-self.sf_pr[m, c]) * self.oc_cm[m, c]
+                                    replacement[m,c] = (self.sf_pr[m, c]) * self.oc_cm[m, c]
                                     # Correcting outflows
                                     self.oc_pr[m, c] = self.oc_pr[m, c]+ self.oc_cm[m, c]  - replacement[m,c]
                                     self.oc_cm[m, c] = self.oc_cm[m, c] + self.sc_pr[m-1, c] /self.sf_pr[m-1,c] * abs((self.sf_pr[m, c] - self.sf_pr[m-1, c]))
@@ -557,15 +566,353 @@ class ProductComponentModel(object):
 
                         return self.sc_pr, self.sc_cm, self.i_pr, self.i_cm, self.oc_pr, self.oc_cm
                     else:
-                        # No delay specified
+                        raise Exception('No delay specified')
                         return None, None, None, None, None, None
                 else:
-                    # No product lifetime specified
+                    raise Exception('No product lifetime specified')
                     return None, None, None, None, None, None
             else:
-                    # No component lifetime specified
+                raise Exception('No component lifetime specified')
+                return None, None, None, None, None, None
+        else:
+            raise Exception('No stock specified')
+            return None, None, None, None, None, None
+            
+    def case_6(self):
+        '''
+        Products and components have independent lifetimes. Potential failure of the componentscomponents is not included in the lifetime of the product. 
+        Components can be replaced and/or reused. If the product fails but the status of the components is still good, the components can be reused in another product. 
+        If the components fails but the product is still in good shape, a new components can be used to make the product operational again. Since the lifetimes of the 
+        product and the components are independent, replacing the components should have no effect on the product's lifetime. Similarly, a components that is reused in 
+        another product keeps its age and lifetime. Such a model would probably use parameters and transfer coefficients to determine the share of products and 
+        components that will be reused depending on their age.
+
+        Assuming that all components that flow out in the vehicles are reusable would lead to an overestimation of the amount of components that are actually
+        fit to be reused. Instead, a logic is needed here to make a reasonable assumption. We reuse only the share of components that would be still be 
+        usable according to their own technical lifetime. This logic can be further developed to use only the share of components that will be still useful
+        for a specified minimum amount of time tau. The same logic is applied to the amount of products that is eligible to get a components replacement.
+
+        As a first priority, vehicles will get a replacement from reused components. If these are not enough, new components fill the gap. 
+        '''
+        if self.s_pr is not None:
+            if self.lt_pr is not None: 
+                if self.lt_cm is not None:
+                    if self.tau_pr is not None:
+                        if self.tau_pr is not None:
+                            self.sc_pr = np.zeros((len(self.t), len(self.t)))
+                            self.oc_pr = np.zeros((len(self.t), len(self.t)))
+                            self.i_pr = np.zeros(len(self.t))
+                            self.sc_cm = np.zeros((len(self.t), len(self.t)))
+                            self.oc_cm = np.zeros((len(self.t), len(self.t)))
+                            self.i_cm = np.zeros(len(self.t))
+                            self.ds_pr = np.concatenate((np.array([0]), np.diff(self.s_pr)))
+                            self.o_cm = np.zeros(len(self.t))
+                            self.o_pr = np.zeros(len(self.t))
+                            replacement = np.zeros((len(self.t), len(self.t)))
+                            reuse = np.zeros((len(self.t), len(self.t)))
+                            # Initializing values
+                            self.sc_pr[0,0] = self.s_pr[0]
+                            self.o_pr[0] = 0 
+                            self.i_pr[0] = self.ds_pr[0] - self.o_pr[0]
+                            self.o_pr[1] = 0
+                            self.i_pr[1] = self.ds_pr[1] - self.o_pr[1]
+                            self.sc_pr[1,1] = self.i_pr[1]
+
+                            # construct the sf of a product of cohort tc remaining in the stock in year t
+                            self.compute_sf_pr() # Computes sf if not present already.
+                            self.compute_sf_cm() # Computes sf od component if not present already.
+                            # all other years:            
+                            for m in range(1, len(self.t)):  # for all years m, starting in second year
+                                for c in range(m+1):
+                                # 1) Compute outflow from previous age-cohorts up to m-1
+                                    if  self.sf_cm[m-1,c] != 0 and self.sf_pr[m-1,c] != 0 and m+self.tau_pr < len(self.t) and m+self.tau_cm < len(self.t): # Else, inflow is 0.
+                                        
+                                        self.oc_pr[m, c] = self.sc_pr[m-1, c] /self.sf_pr[m-1,c] * abs((self.sf_pr[m, c] - self.sf_pr[m-1, c]))  # alculating outflows attributed to product failures
+                                        self.oc_cm[m, c] = (self.sc_pr[m-1, c]- self.oc_pr[m, c])/self.sf_cm[m-1,c] * abs((self.sf_cm[m, c] - self.sf_cm[m-1, c]))# Calculating outflows attributed to component failures 
+                                        # Defining the amount of products eligible for component replacement 
+                                        replacement[m,c] = self.sf_pr[m+self.tau_pr, c] 
+                                        reuse[m,c] = self.sf_cm[m+self.tau_cm, c]
+                                        # Correcting outflows
+                                        self.oc_pr[m, c] = self.oc_pr[m, c]+ self.oc_cm[m, c]  *(1- replacement[m,c])
+                                        self.oc_cm[m, c] = self.oc_cm[m, c] + self.sc_pr[m-1, c] /self.sf_pr[m-1,c] * abs((self.sf_pr[m, c] - self.sf_pr[m-1, c])) - self.oc_pr[m, c] * reuse[m,c]
+                                        self.sc_pr[m,c] = self.sc_pr[m-1,c] - self.oc_pr[m, c]  # Computing real stock
+                                        self.sc_cm[m,c] = self.sc_cm[m-1,c] - self.oc_cm[m,c]
+                                    elif self.sf_pr[m-1,c] != 0 and self.sf_cm[m-1,c] != 0: # Else, inflow is 0.
+                                        self.oc_pr[m, c] = self.sc_pr[m-1, c] /self.sf_pr[m-1,c] * abs((self.sf_pr[m, c] - self.sf_pr[m-1, c]))  # alculating outflows attributed to product failures
+                                        self.oc_cm[m, c] = (self.sc_pr[m-1, c]- self.oc_pr[m, c])/self.sf_cm[m-1,c] * abs((self.sf_cm[m, c] - self.sf_cm[m-1, c]))# Calculating outflows attributed to component failures 
+                                        # Defining the amount of products eligible for component replacement 
+                                        replacement[m,c] = (self.sf_pr[m, c]) * self.oc_cm[m, c]
+                                        reuse[m,c] = (self.sf_cm[m, c]) * self.oc_pr[m, c]  # FIXME: Overestimated since failures attributed to product?
+                                        # Correcting outflows
+                                        self.oc_pr[m, c] = self.oc_pr[m, c]+ self.oc_cm[m, c]  - replacement[m,c]
+                                        self.oc_cm[m, c] = self.oc_pr[m, c] +  replacement[m,c] - reuse[m,c]
+                                        self.sc_pr[m,c] = self.sc_pr[m-1,c] - self.oc_pr[m, c]  # Computing real stock
+                                        self.sc_cm[m,c] = self.sc_cm[m-1,c] - self.oc_cm[m,c]
+                                    self.i_pr[m] = self.ds_pr[m] + self.oc_pr.sum(axis=1)[m] 
+                                    self.i_cm[m] = self.ds_pr[m] + self.oc_cm.sum(axis=1)[m]
+                                    self.sc_pr[m,m] = self.i_pr[m]
+                                # TODO: Need to add stock by cohort of batteries
+
+                            return self.sc_pr, self.sc_cm, self.i_pr, self.i_cm, self.oc_pr, self.oc_cm
+                        else:
+                            raise Exception('No component delay specified')
+                            return None, None, None, None, None, None
+                    else:
+                        raise Exception('No product delay specified')
+                        return None, None, None, None, None, None
+                else:
+                    raise Exception('No product lifetime specified')
+                    return None, None, None, None, None, None
+            else:
+                raise Exception('No component lifetime specified')
+                return None, None, None, None, None, None
+        else:
+            raise Exception('No stock specified')
+            return None, None, None, None, None, None
+            
+    def case_7(self):
+        '''
+        The model does not use lifetimes at all. It would make sense if the inflows of products and components are calculated as a percentage of 
+        the stock (Stock and birth rate model in the paper Lauinger et al.). OK for models where the stock is stable, not suited for studying the 
+        penetration of new products and technologies. 1 product = 1 component, no replacements allowed
+
+        This type of models can be driven by either a death or a birth rate. The component outflows and the product outflows are equivalent and 
+        the rate encompases failures in both products. 
+
+        This case computes model using death rate
+        '''
+        if self.s_pr is not None:
+            if self.d is not None: 
+                self.sc_pr = np.zeros((len(self.t), len(self.t)))
+                self.o_pr = np.zeros( len(self.t))
+                self.i_pr = np.zeros(len(self.t))
+                self.sc_cm = np.zeros((len(self.t), len(self.t)))
+                self.o_cm = np.zeros(len(self.t))
+                self.i_cm = np.zeros(len(self.t))
+                self.ds_pr = np.concatenate((np.array([0]), np.diff(self.s_pr)))
+                # construct the sf of a product of cohort tc remaining in the stock in year t
+                # all other years:
+                for m in range(1, len(self.t)):  # for all years m, starting in second year
+                    # 1) Since leaching approach does not track the cohorts, we cannot determine oc
+                    self.o_pr[m] = self.s_pr[m] * self.d # Outflows are a death fraction of the stock 
+                    self.o_cm[m] = self.o_pr[m] # Components die with products      
+                    self.i_pr[m] = self.ds_pr[m] + self.o_pr[m]
+                    self.i_cm[m] = self.i_pr[m]
+                    # 3) Add new inflow to stock and determine future decay of new age-cohort
+                    self.sc_pr[m, m] = self.i_pr[m]
+                # 4) Determining the values for the component
+                self.sc_cm = self.sc_pr
+                return self.sc_pr, self.sc_cm, self.i_pr, self.i_cm, self.o_pr, self.o_cm
+            else:
+                # No death rate specified
+                raise Exception('No death rate specified')
                 return None, None, None, None, None, None
         else:
                 # No stock specified
+                raise Exception('No stock specified')
+                return None, None, None, None, None, None
+                
+    def case_7b(self):
+        '''
+        The model does not use lifetimes at all. It would make sense if the inflows of products and components are calculated as a percentage of 
+        the stock (Stock and birth rate model in the paper Lauinger et al.). OK for models where the stock is stable, not suited for studying the 
+        penetration of new products and technologies. 1 product = 1 component, no replacements allowed
+
+        This type of models can be driven by either a death or a birth rate. The component outflows and the product outflows are equivalent and 
+        the rate encompases failures in both products. 
+
+        This case computes model using birth rate
+        '''
+        if self.s_pr is not None:
+            if self.b is not None: 
+                self.sc_pr = np.zeros((len(self.t), len(self.t)))
+                self.o_pr = np.zeros( len(self.t))
+                self.i_pr = np.zeros(len(self.t))
+                self.sc_cm = np.zeros((len(self.t), len(self.t)))
+                self.o_cm = np.zeros(len(self.t))
+                self.i_cm = np.zeros(len(self.t))
+                self.ds_pr = np.concatenate((np.array([0]), np.diff(self.s_pr)))
+                # construct the sf of a product of cohort tc remaining in the stock in year t
+                # all other years:
+                for m in range(1, len(self.t)):  # for all years m, starting in second year
+                    # 1) Since leaching approach does not track the cohorts, we cannot determine oc
+                    self.i_pr[m] = self.s_pr[m] * self.b # Outflows are a death fraction of the stock 
+                    self.i_cm[m] = self.i_pr[m] # Components die with products      
+                    self.o_pr[m] = self.i_pr[m] - self.ds_pr[m]
+                    self.o_cm[m] = self.o_pr[m]
+                    # 3) Add new inflow to stock and determine future decay of new age-cohort
+                    self.sc_pr[m, m] = self.i_pr[m]
+                # 4) Determining the values for the component
+                self.sc_cm = self.sc_pr
+                return self.sc_pr, self.sc_cm, self.i_pr, self.i_cm, self.o_pr, self.o_cm
+            else:
+                # No birth rate specified
+                raise Exception('No birth rate specified')
+                return None, None, None, None, None, None
+        else:
+                # No stock specified
+                raise Exception('No stock specified')
+                return None, None, None, None, None, None
+
+    def case_8(self):
+        '''
+        The model does not use lifetimes at all. It would make sense if the inflows of cars and batteries are calculated as a percentage of the stock 
+        (Stock and birth rate model in the paper with Dirk). OK for models where the stock is stable, not suited for studying the penetration of new 
+        products and technologies.
+
+        This case computes model using death rate
+        '''
+        if self.s_pr is not None:
+            if self.d is not None: 
+                if self.r is not None:
+                    self.sc_pr = np.zeros((len(self.t), len(self.t)))
+                    self.o_pr = np.zeros( len(self.t))
+                    self.i_pr = np.zeros(len(self.t))
+                    self.sc_cm = np.zeros((len(self.t), len(self.t)))
+                    self.o_cm = np.zeros(len(self.t))
+                    self.i_cm = np.zeros(len(self.t))
+                    self.ds_pr = np.concatenate((np.array([0]), np.diff(self.s_pr)))
+                    # construct the sf of a product of cohort tc remaining in the stock in year t
+                    # all other years:
+                    for m in range(1, len(self.t)):  # for all years m, starting in second year
+                        # 1) Since leaching approach does not track the cohorts, we cannot determine oc
+                        self.o_pr[m] = self.s_pr[m] * self.d # Outflows are a death fraction of the stock 
+                        self.o_cm[m] = self.o_pr[m] * self.r # Components die with products      
+                        self.i_pr[m] = self.ds_pr[m] + self.o_pr[m]
+                        self.i_cm[m] = self.ds_pr[m] + self.o_cm[m]
+                        # 3) Add new inflow to stock and determine future decay of new age-cohort
+                        self.sc_pr[m, m] = self.i_pr[m]
+                    # 4) Determining the values for the component
+                    self.sc_cm = self.sc_pr
+                    return self.sc_pr, self.sc_cm, self.i_pr, self.i_cm, self.o_pr, self.o_cm
+                else:
+                    # No replacement rate specified
+                    raise Exception('No replacement rate specified')
+                    return None, None, None, None, None, None
+            else:
+                # No death rate specified
+                raise Exception('No death rate specified')
+                return None, None, None, None, None, None
+        else:
+                # No stock specified
+                raise Exception('No stock specified')
+                return None, None, None, None, None, None
+                
+    def case_9(self):
+        '''
+        The lifetime of the product is mostly determined by the lifetime of the component. No component replacement, when it dies, the product dies.  
+        There should be some extra outflows of products as well (accidents), which could be modelled by a stock and death rate approach. 
+        1 product = one component, Outflow component = outflow product.  
+
+        Since the product lifetime is defined by the component lifetime and there is no replacement, we can model moth producs as in case 
+        1 with the component lifetime instead of the product lifetime. 
+        '''
+        if self.s_pr is not None:
+            if self.lt_cm is not None: 
+                self.sc_pr = np.zeros((len(self.t), len(self.t)))
+                self.oc_pr = np.zeros((len(self.t), len(self.t)))
+                self.i_pr = np.zeros(len(self.t))
+                self.sc_cm = np.zeros((len(self.t), len(self.t)))
+                self.oc_cm = np.zeros((len(self.t), len(self.t)))
+                self.i_cm = np.zeros(len(self.t))
+                self.ds_pr = np.concatenate((np.array([0]), np.diff(self.s_pr)))
+                # construct the sf of a product of cohort tc remaining in the stock in year t
+                self.compute_sf_cm() # Computes sf if not present already.
+                if self.sf_cm[0, 0] != 0: # Else, inflow is 0.
+                    self.i_cm[0] = self.s_pr[0] / self.sf_cm[0, 0]
+                self.sc_cm[:, 0] = self.i_cm[0] * self.sf_cm[:, 0] # Future decay of age-cohort of year 0.
+                self.oc_cm[0, 0] = self.i_cm[0] - self.sc_cm[0, 0]
+                # all other years:
+                for m in range(1, len(self.t)):  # for all years m, starting in second year
+                    # 1) Compute outflow from previous age-cohorts up to m-1
+                    self.oc_pr[m, 0:m] = self.sc_pr[m-1, 0:m] - self.sc_pr[m, 0:m] # outflow table is filled row-wise, for each year m.
+                    # 2) Determine inflow from mass balance:
+                    
+                    if self.sf_cm[m,m] != 0: # Else, inflow is 0.
+                        self.i_pr[m] = (self.s_pr[m] - self.sc_pr[m, :].sum()) / self.sf_cm[m,m] # allow for outflow during first year by rescaling with 1/sf[m,m]
+                    # 3) Add new inflow to stock and determine future decay of new age-cohort
+                    self.sc_pr[m::, m] = self.i_pr[m] * self.sf_cm[m::, m]
+                    self.oc_pr[m, m]   = self.i_pr[m] * (1 - self.sf_cm[m, m])
+                # 4) Determining the values for the component
+                self.sc_cm = self.sc_pr
+                self.oc_cm = self.oc_pr 
+                self.i_cm = self.i_pr
+                # 4) Determining the values for the component
+                    #self.sc_cm[m,m] = self.i_cm[m] *self.sf_cm[m,m]
+                return self.sc_pr, self.sc_cm, self.i_pr, self.i_cm, self.oc_pr, self.oc_cm
+            else:
+                raise Exception('No lifetime specified')
+                return None, None, None, None, None, None
+        else:
+            raise Exception('No stock specified')
             return None, None, None, None, None, None
-            
+
+    def case_10(self):
+        '''
+        The lifetime of the car is mostly determined by the lifetime of the battery. No battery replacement, when it dies, the car dies, 
+        but some batteries from crashed cars can be reused in new cars.  There should be some extra outflows of cars as well (accidents), 
+        which could be modelled by a stock and death rate approach. Outflow battery <= outflow car. This case is probably not the most meaningful.
+
+        In this case some of the batteries are deemed to be reusable. This makes sense if we consider that some of the outflows are due to vehicle failures. 
+        We can here consider then that only a fraction of the batteries that would qualify can actually be reused. Therefore, we define the survival curve of 
+        the battery and consider that only the share of batteries that would still be there after a certain amount of years theoretically qualifies for reuse, 
+        but because some of those batteries are in fact faulty, a factor is needed in addition. 
+        '''
+        if self.s_pr is not None:
+            if self.lt_pr is not None: 
+                if self.lt_cm is not None:
+                    if self.tau_cm is not None:
+                        self.sc_pr = np.zeros((len(self.t), len(self.t)))
+                        self.oc_pr = np.zeros((len(self.t), len(self.t)))
+                        self.i_pr = np.zeros(len(self.t))
+                        self.sc_cm = np.zeros((len(self.t), len(self.t)))
+                        self.oc_cm = np.zeros((len(self.t), len(self.t)))
+                        self.i_cm = np.zeros(len(self.t))
+                        self.ds_pr = np.concatenate((np.array([0]), np.diff(self.s_pr)))
+                        self.o_cm = np.zeros(len(self.t))
+                        self.o_pr = np.zeros(len(self.t))
+                        reuse = np.zeros((len(self.t), len(self.t)))
+                        # Initializing values
+                        self.sc_pr[0,0] = self.s_pr[0]
+                        self.o_pr[0] = 0 
+                        self.i_pr[0] = self.ds_pr[0] - self.o_pr[0]
+                        self.o_pr[1] = 0
+                        self.i_pr[1] = self.ds_pr[1] - self.o_pr[1]
+                        self.sc_pr[1,1] = self.i_pr[1]
+
+                        # construct the sf of a product of cohort tc remaining in the stock in year t
+                        self.compute_sf_pr() # Computes sf if not present already.
+                        self.compute_sf_cm() # Computes sf od component if not present already.
+                        # all other years:            
+                        for m in range(1, len(self.t)):  # for all years m, starting in second year
+                            # 1) Compute outflow from previous age-cohorts up to m-1
+                            if self.sf_pr[m,m] != 0 and self.sf_cm[m,m] != 0: # Else, inflow is 0.
+                                self.oc_cm[m, 0:m] = self.sc_pr[m-1, 0:m]/self.sf_cm[m-1,0:m] * abs((self.sf_cm[m, 0:m] - self.sf_cm[m-1, 0:m]))# FIXME: Truedev gives a warning for some values
+                                self.oc_pr[m, 0:m] = (self.sc_pr[m-1, 0:m] - self.oc_cm[m, 0:m])/self.sf_pr[m-1,0:m] * abs((self.sf_pr[m, 0:m] - self.sf_pr[m-1, 0:m]))  # Calculating outflows attributed to product failures
+                                self.sc_pr[m,0:m] = self.sc_pr[m-1,:m] - self.oc_pr[m, 0:m] - self.oc_cm[m, 0:m] # Computing real stock
+                                # defining the share of components that is useful
+                                if m+self.tau_cm < len(self.t):
+                                    reuse[m,:m] = self.oc_pr[m,0:m] * self.sf_pr[m+self.tau_cm, 0:m]
+                                else: 
+                                    reuse[m,:m] = 0 #TODO: We need some better solution for when t+tau exceeds the model run
+                                self.oc_cm[m,0:m] = self.oc_cm[m, 0:m] - reuse[m,0:m] +  self.oc_pr[m, 0:m]
+                                self.oc_pr[m,0:m] = self.oc_cm[m, 0:m] + reuse[m,0:m] 
+                            
+                            self.i_pr[m] = self.ds_pr[m] + self.oc_pr.sum(axis=1)[m] 
+                            self.i_cm[m] = self.ds_pr[m] + self.oc_cm.sum(axis=1)[m]
+                            self.sc_pr[m,m] = self.i_pr[m]
+                            # TODO: Need to add stock by cohort of batteries
+
+                        return self.sc_pr, self.sc_cm, self.i_pr, self.i_cm, self.oc_pr, self.oc_cm
+                    else:
+                        raise Exception('No delay specified')
+                        return None, None, None, None, None, None
+                else:
+                    raise Exception('No product lifetime specified')
+                    return None, None, None, None, None, None
+            else:
+                raise Exception('No component lifetime specified')
+                return None, None, None, None, None, None
+        else:
+            raise Exception('No stock specified')
+            return None, None, None, None, None, None
