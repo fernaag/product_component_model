@@ -398,12 +398,13 @@ class ProductComponentModel(object):
                             self.oc_pr[m, 0:m] = self.sc_pr[m-1, 0:m]/self.sf_pr[m-1,0:m] * abs((self.sf_pr[m, 0:m] - self.sf_pr[m-1, 0:m]))  # Calculating outflows attributed to product failures
                             self.oc_cm[m, 0:m] = (self.sc_pr[m-1, 0:m] - self.oc_pr[m, 0:m])/self.sf_cm[m-1,0:m] * abs((self.sf_cm[m, 0:m] - self.sf_cm[m-1, 0:m]))# Calculating outflows attributed to component failures
                             self.sc_pr[m,0:m] = self.sc_pr[m-1,:m] - self.oc_pr[m, 0:m] - self.oc_cm[m, 0:m] # Computing real stock
-                            # TODO: Should we put the total outflows as the sum of both? I guess it make sense, since otherwise the user will need to do this manually...
+                            self.oc_pr[m, 0:m] = self.oc_pr[m, 0:m] + self.oc_cm[m, 0:m]
+                            self.oc_cm[m, 0:m] = self.oc_pr[m, 0:m]
                             # 2) Determine inflow from mass balance:
                              #/ self.sf_pr[m,m] # allow for outflow during first year by rescaling with 1/sf[m,m]
                             #self.i_cm[m] = self.ds_pr[m] +  self.oc_cm.sum(axis=1)[m]
                         # 3) Add new inflow to stock and determine future decay of new age-cohort
-                        self.i_pr[m] = self.ds_pr[m] + self.oc_pr.sum(axis=1)[m] + self.oc_cm.sum(axis=1)[m]
+                        self.i_pr[m] = self.ds_pr[m] + self.oc_pr.sum(axis=1)[m] 
                         self.i_cm[m] = self.i_pr[m]
                         self.sc_pr[m,m] = self.i_pr[m]
                     return self.sc_pr, self.sc_cm, self.i_pr, self.i_cm, self.oc_pr, self.oc_cm
