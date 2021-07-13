@@ -6,7 +6,7 @@ Methods for handling product-component interactions under different assumptions.
 
 Created on Mon Jul 05 2021
 
-@author: Fernando Aguilar Lopez & Romain Billy, NTNU Trondheim, Norway
+@authors: Fernando Aguilar Lopez & Romain Billy, NTNU Trondheim, Norway
 
 standard abbreviation: PCM or pcm 
 
