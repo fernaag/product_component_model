@@ -871,14 +871,13 @@ class ProductComponentModel(object):
                                         # Correcting outflows
                                         self.oc_pr[m, c] = self.oc_pr[m, c]+ self.oc_cm[m, c]  *(1- replacement[m,c])
                                         # The component outflows are equal to the component failures plus the product failures minus the amount of components reused
-                                        self.oc_cm[m, c] = self.oc_cm[m, c] + self.sc_pr[m-1, c] /self.sf_pr[m-1,c] * abs((self.sf_pr[m, c] - self.sf_pr[m-1, c])) * (1-  reuse[m,c])
+                                        self.oc_cm[m, c] =self.oc_cm[m, c] + (self.sc_pr[m-1, c] /self.sf_pr[m-1,c] * abs((self.sf_pr[m, c] - self.sf_pr[m-1, c]))) * (1-  reuse[m,c])
                                         self.sc_pr[m,c] = self.sc_pr[m-1,c] - self.oc_pr[m, c]  # Computing real stock
                                         self.sc_cm[m,c] = self.sc_cm[m-1,c] - self.oc_cm[m,c]
                                     self.i_pr[m] = self.ds_pr[m] + self.oc_pr.sum(axis=1)[m] 
                                     self.i_cm[m] = self.ds_pr[m] + self.oc_cm.sum(axis=1)[m]
                                     self.sc_pr[m,m] = self.i_pr[m]
                                     self.sc_cm[m,m] = self.i_cm[m]
-
                             return self.sc_pr, self.sc_cm, self.i_pr, self.i_cm, self.oc_pr, self.oc_cm
                         else:
                             raise Exception('No component delay specified')
