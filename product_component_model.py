@@ -562,6 +562,7 @@ class ProductComponentModel(object):
                         self.i_pr[m] = self.ds_pr[m] + self.oc_pr.sum(axis=1)[m] 
                         self.i_cm[m] = self.i_pr[m]
                         self.sc_pr[m,m] = self.i_pr[m]
+                    self.sc_cm = self.sc_pr
                     return self.sc_pr, self.sc_cm, self.i_pr, self.i_cm, self.oc_pr, self.oc_cm
                 else:
                     raise Exception('No component lifetime specified')
