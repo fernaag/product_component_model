@@ -524,44 +524,38 @@ class ProductComponentModel(object):
         '''
         if self.s_pr is not None:
             if self.lt_pr is not None:
-                if self.r is not None:  
+                if self.r is not None: 
                     self.sc_pr = np.zeros((len(self.t), len(self.t)))
                     self.oc_pr = np.zeros((len(self.t), len(self.t)))
                     self.i_pr = np.zeros(len(self.t))
-                    self.sc_cm = np.zeros((len(self.t), len(self.t)))
-                    self.oc_cm = np.zeros((len(self.t), len(self.t)))
-                    self.i_cm = np.zeros(len(self.t))
-                    self.ds_pr = np.concatenate((np.array([0]), np.diff(self.s_pr)))
 
+                    self.i_cm = np.zeros(len(self.t))
                     # construct the sf of a product of cohort tc remaining in the stock in year t
                     self.compute_sf_pr() # Computes sf if not present already.
                     if self.sf_pr[0, 0] != 0: # Else, inflow is 0.
                         self.i_pr[0] = self.s_pr[0] / self.sf_pr[0, 0]
-                        self.i_cm[0] = self.i_pr[0]
-                    self.sc_cm[:, 0] = self.i_cm[0] * self.sf_pr[:, 0] # Future decay of age-cohort of year 0.
-                    self.oc_cm[0, 0] = self.i_cm[0] - self.sc_cm[0, 0]
                     self.sc_pr[:, 0] = self.i_pr[0] * self.sf_pr[:, 0] # Future decay of age-cohort of year 0.
                     self.oc_pr[0, 0] = self.i_pr[0] - self.sc_pr[0, 0]
-                    # all other years:            
+                    # all other years:
                     for m in range(1, len(self.t)):  # for all years m, starting in second year
                         # 1) Compute outflow from previous age-cohorts up to m-1
                         self.oc_pr[m, 0:m] = self.sc_pr[m-1, 0:m] - self.sc_pr[m, 0:m] # outflow table is filled row-wise, for each year m.
-                        self.oc_cm[m, 0:m] = self.oc_pr[m, 0:m]*(1+self.r) # outflow table is filled row-wise, for each year m. We multiply with the replacement rate
                         # 2) Determine inflow from mass balance:
                         
                         if self.sf_pr[m,m] != 0: # Else, inflow is 0.
-                            self.i_pr[m] = (self.s_pr[m] - self.sc_pr[m, :].sum()) #/ self.sf_pr[m,m] # allow for outflow during first year by rescaling with 1/sf[m,m]
-                            self.i_cm[m] = self.ds_pr[m] +  self.oc_cm.sum(axis=1)[m]
+                            self.i_pr[m] = (self.s_pr[m] - self.sc_pr[m, :].sum()) / self.sf_pr[m,m] # allow for outflow during first year by rescaling with 1/sf[m,m]
                         # 3) Add new inflow to stock and determine future decay of new age-cohort
                         self.sc_pr[m::, m] = self.i_pr[m] * self.sf_pr[m::, m]
                         self.oc_pr[m, m]   = self.i_pr[m] * (1 - self.sf_pr[m, m])
-                        self.sc_cm[m::, m] = self.i_cm[m] * self.sf_pr[m::, m]
-                        self.oc_cm[m, m]   = (self.i_cm[m] * (1 - self.sf_pr[m, m]))*(1+self.r)
-                    self.s_cm = self.s_pr                
+                    # 4) Determining the values for the component
+                    self.s_cm = self.s_pr
+                    self.i_cm = self.i_pr * (1 + self.r)
+                    self.o_cm = self.i_cm - self.compute_stock_change_cm()
+
                     # Calculating total values
                     self.o_pr = self.oc_pr.sum(axis=1)
-                    self.o_cm = self.oc_cm.sum(axis=1)
-                    return self.sc_pr, self.sc_cm, self.i_pr, self.i_cm, self.oc_pr, self.oc_cm
+
+                    return self.sc_pr, self.i_pr, self.i_cm, self.oc_pr
                 else:
                     raise Exception('No replacement rate specified')
                     return None, None, None, None, None, None
