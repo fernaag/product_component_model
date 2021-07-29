@@ -132,9 +132,9 @@ class ProductComponentModel(object):
     def compute_stock_change_pr(self):
         """ Determine stock change for product from time series for stock. Formula: stock_change(t) = stock(t) - stock(t-1)."""
         try:
-            self.sc_pr = np.zeros(len(self.s))
-            self.sc_pr[0] = self.s[0]
-            self.sc_pr[1::] = np.diff(self.s)
+            self.sc_pr = np.zeros(len(self.s_pr))
+            self.sc_pr[0] = self.s_pr[0]
+            self.sc_pr[1::] = np.diff(self.s_pr)
             return self.sc_pr
         except:
             # Could not determine Stock change of product. The stock is not defined.
@@ -144,9 +144,9 @@ class ProductComponentModel(object):
     def compute_stock_change_cm(self):
         """ Determine stock change for component from time series for stock. Formula: stock_change(t) = stock(t) - stock(t-1)."""
         try:
-            self.sc_cm = np.zeros(len(self.s))
-            self.sc_cm[0] = self.s[0]
-            self.sc_cm[1::] = np.diff(self.s)
+            self.sc_cm = np.zeros(len(self.s_cm))
+            self.sc_cm[0] = self.s_cm[0]
+            self.sc_cm[1::] = np.diff(self.s_cm)
             return self.sc_cm
         except:
             # Could not determine Stock change of component. The stock is not defined.
