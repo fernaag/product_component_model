@@ -132,10 +132,10 @@ class ProductComponentModel(object):
     def compute_stock_change_pr(self):
         """ Determine stock change for product from time series for stock. Formula: stock_change(t) = stock(t) - stock(t-1)."""
         try:
-            self.sc_pr = np.zeros(len(self.s_pr))
-            self.sc_pr[0] = self.s_pr[0]
-            self.sc_pr[1::] = np.diff(self.s_pr)
-            return self.sc_pr
+            self.ds_pr = np.zeros(len(self.s_pr))
+            self.ds_pr[0] = self.s_pr[0]
+            self.ds_pr[1::] = np.diff(self.s_pr)
+            return self.ds_pr
         except:
             # Could not determine Stock change of product. The stock is not defined.
             return None     
@@ -144,10 +144,10 @@ class ProductComponentModel(object):
     def compute_stock_change_cm(self):
         """ Determine stock change for component from time series for stock. Formula: stock_change(t) = stock(t) - stock(t-1)."""
         try:
-            self.sc_cm = np.zeros(len(self.s_cm))
-            self.sc_cm[0] = self.s_cm[0]
-            self.sc_cm[1::] = np.diff(self.s_cm)
-            return self.sc_cm
+            self.ds_cm = np.zeros(len(self.s_cm))
+            self.ds_cm[0] = self.s_cm[0]
+            self.ds_cm[1::] = np.diff(self.s_cm)
+            return self.ds_cm
         except:
             # Could not determine Stock change of component. The stock is not defined.
             return None     
@@ -175,7 +175,7 @@ class ProductComponentModel(object):
     def check_stock_pr_cm(self):
         """ Check if the stock of product and component are the same"""
         try:
-            Balance = self.s_tr - self.s_cm 
+            Balance = self.s_pr - self.s_cm 
             return Balance
         except:
             # Could not determine balance. At least one of the variables is not defined.
@@ -499,7 +499,12 @@ class ProductComponentModel(object):
                 # 4) Determining the values for the component
                 self.sc_cm = self.sc_pr
                 self.oc_cm = self.oc_pr 
+                self.s_cm = self.s_pr
                 self.i_cm = self.i_pr
+                # Calculating total values
+                self.o_pr = self.oc_pr.sum(axis=1)
+                self.o_cm = self.oc_cm.sum(axis=1)
+                    
                 return self.sc_pr, self.sc_cm, self.i_pr, self.i_cm, self.oc_pr, self.oc_cm
             else:
                 raise Exception('No lifetime specified')
@@ -552,6 +557,10 @@ class ProductComponentModel(object):
                         self.oc_pr[m, m]   = self.i_pr[m] * (1 - self.sf_pr[m, m])
                         self.sc_cm[m::, m] = self.i_cm[m] * self.sf_pr[m::, m]
                         self.oc_cm[m, m]   = (self.i_cm[m] * (1 - self.sf_pr[m, m]))*(1+self.r)
+                    self.s_cm = self.s_pr                
+                    # Calculating total values
+                    self.o_pr = self.oc_pr.sum(axis=1)
+                    self.o_cm = self.oc_cm.sum(axis=1)
                     return self.sc_pr, self.sc_cm, self.i_pr, self.i_cm, self.oc_pr, self.oc_cm
                 else:
                     raise Exception('No replacement rate specified')
@@ -615,8 +624,11 @@ class ProductComponentModel(object):
                         self.i_pr[m] = self.ds_pr[m] + self.oc_pr.sum(axis=1)[m] 
                         self.i_cm[m] = self.i_pr[m]
                         self.sc_pr[m,m] = self.i_pr[m]
+                    self.o_pr = self.oc_pr.sum(axis=1)
+                    self.o_cm = self.oc_cm.sum(axis=1)
                     self.sc_cm = self.sc_pr
-                    return self.sc_pr, self.sc_cm, self.i_pr, self.i_cm, self.oc_pr, self.oc_cm
+                    self.s_cm = self.s_pr
+                    return self.sc_pr, self.sc_cm 
                 else:
                     raise Exception('No component lifetime specified')
                     return None, None, None, None, None, None
