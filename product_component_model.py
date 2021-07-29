@@ -127,6 +127,59 @@ class ProductComponentModel(object):
 
         self.pdf_cm = pdf_cm # optional
         self.sf_cm  = sf_cm # optional
+        
+
+    def compute_stock_change_pr(self):
+        """ Determine stock change for product from time series for stock. Formula: stock_change(t) = stock(t) - stock(t-1)."""
+        try:
+            self.sc_pr = np.zeros(len(self.s))
+            self.sc_pr[0] = self.s[0]
+            self.sc_pr[1::] = np.diff(self.s)
+            return self.sc_pr
+        except:
+            # Could not determine Stock change of product. The stock is not defined.
+            return None     
+
+
+    def compute_stock_change_cm(self):
+        """ Determine stock change for component from time series for stock. Formula: stock_change(t) = stock(t) - stock(t-1)."""
+        try:
+            self.sc_cm = np.zeros(len(self.s))
+            self.sc_cm[0] = self.s[0]
+            self.sc_cm[1::] = np.diff(self.s)
+            return self.sc_cm
+        except:
+            # Could not determine Stock change of component. The stock is not defined.
+            return None     
+        
+    def check_stock_balance_pr(self):
+        """ Check wether inflow, outflow, and stock are balanced for main product. 
+        If possible, the method returns the vector 'Balance', where Balance = inflow - outflow - stock_change"""
+        try:
+            Balance = self.i_pr - self.o_pr - self.compute_stock_change_pr()
+            return Balance
+        except:
+            # Could not determine balance. At least one of the variables is not defined.
+            return None
+
+    def check_stock_balance_cm(self):
+        """ Check wether inflow, outflow, and stock are balanced for the component. 
+        If possible, the method returns the vector 'Balance', where Balance = inflow - outflow - stock_change"""
+        try:
+            Balance = self.i_cm - self.o_cm - self.compute_stock_change_cm()
+            return Balance
+        except:
+            # Could not determine balance. At least one of the variables is not defined.
+            return None
+        
+    def check_stock_pr_cm(self):
+        """ Check if the stock of product and component are the same"""
+        try:
+            Balance = self.s_tr - self.s_cm 
+            return Balance
+        except:
+            # Could not determine balance. At least one of the variables is not defined.
+            return None
 
     def compute_sf_pr(self): # survival functions
         """
