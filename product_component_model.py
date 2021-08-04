@@ -6,7 +6,7 @@ Methods for handling product-component interactions under different assumptions.
 
 Created on Mon Jul 05 2021
 
-@authors: Fernando Aguilar Lopez & Romain Billy, NTNU Trondheim, Norway
+@authors: Fernando Aguilar Lopez & Romain Billy, NTNU Trondheim, Norway. Built on the previous work done by Stephan Pauliuk in the dynamic_stock_model. 
 
 standard abbreviation: PCM or pcm 
 
@@ -789,6 +789,10 @@ class ProductComponentModel(object):
                                 self.i_cm[m] = self.ds_pr[m] + self.oc_cm.sum(axis=1)[m]
                                 self.sc_pr[m,m] = self.i_pr[m]
                                 self.sc_cm[m,m] = self.i_cm[m]
+                        self.o_pr = self.oc_pr.sum(axis=1)
+                        self.o_cm = self.oc_cm.sum(axis=1)
+                        self.s_pr = self.sc_pr.sum(axis=1)
+                        self.s_cm = self.sc_cm.sum(axis=1)
                         #return self.sc_pr, self.sc_cm, self.i_pr, self.i_cm, self.oc_pr, self.oc_cm
                     else:
                         raise Exception('No delay specified')
@@ -953,6 +957,10 @@ class ProductComponentModel(object):
                                     self.i_cm[m] = self.ds_pr[m] + self.oc_cm.sum(axis=1)[m]
                                     self.sc_pr[m,m] = self.i_pr[m]
                                     self.sc_cm[m,m] = self.i_cm[m]
+                            self.o_pr = self.oc_pr.sum(axis=1)
+                            self.o_cm = self.oc_cm.sum(axis=1)
+                            self.s_pr = self.sc_pr.sum(axis=1)
+                            self.s_cm = self.sc_cm.sum(axis=1)
                             #return self.sc_pr, self.sc_cm, self.i_pr, self.i_cm, self.oc_pr, self.oc_cm
                         else:
                             raise Exception('No component delay specified')
