@@ -6,7 +6,7 @@ Methods for handling product-component interactions under different assumptions.
 
 Created on Mon Jul 05 2021
 
-@authors: Fernando Aguilar Lopez & Romain Billy, NTNU Trondheim, Norway
+@authors: Fernando Aguilar Lopez & Romain Billy, NTNU Trondheim, Norway. Built on the previous work done by Stephan Pauliuk in the dynamic_stock_model. 
 
 standard abbreviation: PCM or pcm 
 
@@ -679,10 +679,11 @@ class ProductComponentModel(object):
                         self.sc_cm = np.zeros((len(self.t), len(self.t)))
                         self.oc_cm = np.zeros((len(self.t), len(self.t)))
                         self.i_cm = np.zeros(len(self.t))
-                        self.ds_pr = np.concatenate((np.array([0]), np.diff(self.s_pr)))
                         self.o_cm = np.zeros(len(self.t))
                         self.o_pr = np.zeros(len(self.t))
+                        self.ds_pr = self.compute_stock_change_pr()
                         reuse = np.zeros((len(self.t), len(self.t)))
+
                         # Initializing values
                         self.sc_pr[0,0] = self.s_pr[0]
                         self.o_pr[0] = 0 
@@ -690,27 +691,42 @@ class ProductComponentModel(object):
                         self.o_pr[1] = 0
                         self.i_pr[1] = self.ds_pr[1] - self.o_pr[1]
                         self.sc_pr[1,1] = self.i_pr[1]
+                        
+                        self.sc_cm[0,0] = self.s_pr[0]
+                        self.o_cm[0] = 0 
+                        self.i_cm[0] = self.ds_pr[0] - self.o_cm[0]
+                        self.o_cm[1] = 0
+                        self.i_cm[1] = self.ds_pr[1] - self.o_cm[1]
+                        self.sc_cm[1,1] = self.i_cm[1]
 
                         # construct the sf of a product of cohort tc remaining in the stock in year t
                         self.compute_sf_pr() # Computes sf if not present already.
                         self.compute_sf_cm_tau() # Computes sf od component if not present already.
-                        # all other years:            
+
                         for m in range(1, len(self.t)):  # for all years m, starting in second year
                             # 1) Compute outflow from previous age-cohorts up to m-1
                             if self.sf_pr[m,m] != 0 and self.sf_cm[m,m] != 0: # Else, inflow is 0.
                                 self.oc_cm[m, 0:m] = self.sc_cm[m-1, 0:m]/self.sf_cm[m-1,0:m] * abs((self.sf_cm[m, 0:m] - self.sf_cm[m-1, 0:m]))# FIXME: Truedev gives a warning for some values, TODO: Double-check if use of sc_cm is correct here rather than sc_pr
                                 self.oc_pr[m, 0:m] = (self.sc_pr[m-1, 0:m] - self.oc_cm[m, 0:m])/self.sf_pr[m-1,0:m] * abs((self.sf_pr[m, 0:m] - self.sf_pr[m-1, 0:m]))  # Calculating outflows attributed to product failures
-                                self.sc_pr[m,0:m] = self.sc_pr[m-1,:m] - self.oc_pr[m, 0:m] - self.oc_cm[m, 0:m] # Computing real stock
-                                self.sc_cm[m,0:m] = self.sc_cm[m-1,0:m] - self.oc_cm[m,0:m]
-                                # defining the share of components that is useful TODO: Is this really sf_cm we need to use?
+                                # defining the share of components that is useful
                                 reuse[m,:m] = self.oc_pr[m,0:m] * self.sf_cm[m+self.tau_cm, 0:m]
-                                self.oc_cm[m,0:m] = self.oc_cm[m, 0:m] - reuse[m,0:m] +  self.oc_pr[m, 0:m]
-                                self.oc_pr[m,0:m] = self.oc_cm[m, 0:m] + reuse[m,0:m] 
-                            self.i_pr[m] = self.ds_pr[m] + self.oc_pr.sum(axis=1)[m] 
-                            self.i_cm[m] = self.ds_pr[m] + self.oc_cm.sum(axis=1)[m]
-                            self.sc_pr[m,m] = self.i_pr[m]
-                            self.sc_cm[m,m] = self.i_cm[m]
-                        return self.sc_pr, self.sc_cm, self.i_pr, self.i_cm, self.oc_pr, self.oc_cm
+                                # Correcting outflows
+                                self.oc_pr[m,0:m] = self.oc_pr[m, 0:m] + self.oc_cm[m, 0:m]
+                                self.oc_cm[m,0:m] = self.oc_pr[m, 0:m] - reuse[m,:m]
+                                # Computing real stock
+                                self.sc_pr[m,0:m] = self.sc_pr[m-1,0:m] - self.oc_pr[m, 0:m] 
+                                self.sc_cm[m,0:m] = self.sc_cm[m-1,0:m] - self.oc_cm[m,0:m] 
+                                # Computing inflows
+                                self.i_pr[m] = self.ds_pr[m] + self.oc_pr.sum(axis=1)[m] 
+                                self.i_cm[m] = self.ds_pr[m] + self.oc_cm.sum(axis=1)[m]
+                                # Updating stock
+                                self.sc_pr[m,m] = self.i_pr[m]
+                                self.sc_cm[m,m] = self.i_cm[m]
+                        self.o_pr = self.oc_pr.sum(axis=1)
+                        self.o_cm = self.oc_cm.sum(axis=1)
+                        self.s_pr = self.sc_pr.sum(axis=1)
+                        self.s_cm = self.sc_cm.sum(axis=1)
+                        #return self.sc_pr, self.sc_cm, self.i_pr, self.i_cm, self.oc_pr, self.oc_cm
                     else:
                         raise Exception('No delay specified')
                         return None, None, None, None, None, None
@@ -797,7 +813,11 @@ class ProductComponentModel(object):
                                 self.i_cm[m] = self.ds_pr[m] + self.oc_cm.sum(axis=1)[m]
                                 self.sc_pr[m,m] = self.i_pr[m]
                                 self.sc_cm[m,m] = self.i_cm[m]
-                        return self.sc_pr, self.sc_cm, self.i_pr, self.i_cm, self.oc_pr, self.oc_cm
+                        self.o_pr = self.oc_pr.sum(axis=1)
+                        self.o_cm = self.oc_cm.sum(axis=1)
+                        self.s_pr = self.sc_pr.sum(axis=1)
+                        self.s_cm = self.sc_cm.sum(axis=1)
+                        #return self.sc_pr, self.sc_cm, self.i_pr, self.i_cm, self.oc_pr, self.oc_cm
                     else:
                         raise Exception('No delay specified')
                         return None, None, None, None, None, None
@@ -961,7 +981,11 @@ class ProductComponentModel(object):
                                     self.i_cm[m] = self.ds_pr[m] + self.oc_cm.sum(axis=1)[m]
                                     self.sc_pr[m,m] = self.i_pr[m]
                                     self.sc_cm[m,m] = self.i_cm[m]
-                            return self.sc_pr, self.sc_cm, self.i_pr, self.i_cm, self.oc_pr, self.oc_cm
+                            self.o_pr = self.oc_pr.sum(axis=1)
+                            self.o_cm = self.oc_cm.sum(axis=1)
+                            self.s_pr = self.sc_pr.sum(axis=1)
+                            self.s_cm = self.sc_cm.sum(axis=1)
+                            #return self.sc_pr, self.sc_cm, self.i_pr, self.i_cm, self.oc_pr, self.oc_cm
                         else:
                             raise Exception('No component delay specified')
                             return None, None, None, None, None, None
