@@ -582,47 +582,71 @@ class ProductComponentModel(object):
         if self.s_pr is not None:
             if self.lt_pr is not None: 
                 if self.lt_cm is not None:
+                    self.s_cm = self.s_pr #both stocks are always equal
                     self.sc_pr = np.zeros((len(self.t), len(self.t)))
                     self.oc_pr = np.zeros((len(self.t), len(self.t)))
                     self.i_pr = np.zeros(len(self.t))
                     self.sc_cm = np.zeros((len(self.t), len(self.t)))
                     self.oc_cm = np.zeros((len(self.t), len(self.t)))
-                    self.i_cm = np.zeros(len(self.t))
+                    self.i_cm = np.zeros(len(self.t))                 
+                    self.oc_due_to_pr = np.zeros((len(self.t), len(self.t))) #outflows caused by product failure
+                    self.oc_due_to_cm = np.zeros((len(self.t), len(self.t))) #outflows caused by component failure
+                    self.oc_both = np.zeros((len(self.t), len(self.t))) #outflows caused by "simultaneous" failure on the same year
                     self.ds_pr = np.concatenate((np.array([0]), np.diff(self.s_pr)))
                     self.o_cm = np.zeros(len(self.t))
                     self.o_pr = np.zeros(len(self.t))
-                    # Initializing values
-                    self.sc_pr[0,0] = self.s_pr[0]
-                    self.o_pr[0] = 0 
-                    self.i_pr[0] = self.ds_pr[0] - self.o_pr[0]
-                    self.o_pr[1] = 0
-                    self.i_pr[1] = self.ds_pr[1] - self.o_pr[1]
-                    self.sc_pr[1,1] = self.i_pr[1]
-
+                    
                     # construct the sf of a product of cohort tc remaining in the stock in year t
                     self.compute_sf_pr() # Computes sf if not present already.
                     self.compute_sf_cm() # Computes sf of component if not present already.
+                    
+                    # Initializing values
+                    self.sc_pr[0,0] = self.s_pr[0]
+                    if self.sf_pr[0, 0] != 0: # Else, inflow is 0.
+                        self.i_pr[0] = self.s_pr[0] / self.sf_pr[0, 0]
+                    self.sc_pr[:, 0] = self.i_pr[0] * self.sf_pr[:, 0] # Future decay of age-cohort of year 0.
+                    self.oc_pr[0, 0] = self.i_pr[0] - self.sc_pr[0, 0]
+                    # The intial values are the same for the component
+                    self.sc_cm[0,0] = self.sc_pr[0,0]
+                    self.o_cm[0] = 0 
+                    self.i_cm[0] = self.i_pr[0]
+                    
                     # all other years:            
                     for m in range(1, len(self.t)):  # for all years m, starting in second year
                         # 1) Compute outflow from previous age-cohorts up to m-1
                         if self.sf_pr[m,m] != 0 and self.sf_cm[m,m] != 0: # Else, inflow is 0.
-                            self.oc_pr[m, 0:m] = self.sc_pr[m-1, 0:m]/self.sf_pr[m-1,0:m] * abs((self.sf_pr[m, 0:m] - self.sf_pr[m-1, 0:m]))  # Calculating outflows attributed to product failures
-                            self.oc_cm[m, 0:m] = (self.sc_pr[m-1, 0:m] - self.oc_pr[m, 0:m])/self.sf_cm[m-1,0:m] * abs((self.sf_cm[m, 0:m] - self.sf_cm[m-1, 0:m]))# Calculating outflows attributed to component failures
-                            self.sc_pr[m,0:m] = self.sc_pr[m-1,:m] - self.oc_pr[m, 0:m] - self.oc_cm[m, 0:m] # Computing real stock
-                            self.oc_pr[m, 0:m] = self.oc_pr[m, 0:m] + self.oc_cm[m, 0:m]
-                            self.oc_cm[m, 0:m] = self.oc_pr[m, 0:m]
+                            for c in range(m):
+                                # Calculating outflows attributed to product failures, correcting for lower value of remaining stock 
+                                if self.sf_pr[m-1,c] !=0:
+                                    self.oc_due_to_pr[m, c] = self.sc_pr[m-1, c] / self.sf_pr[m-1, c] * abs(self.sf_pr[m, c] - self.sf_pr[m-1, c])
+                                # Calculating outflows attributed to component failures, correcting for lower value of remaining stock
+                                if self.sf_cm[m-1,c] !=0:
+                                    self.oc_due_to_cm[m, c] = self.sc_cm[m-1, c] / self.sf_cm[m-1,c] * abs(self.sf_cm[m, c] - self.sf_cm[m-1, c])
+                                # Calculating outflows where both product and components failed during the year
+                                if self.sc_pr[m-1, c]!=0:
+                                    self.oc_both[m, c] = self.oc_due_to_pr[m, c] / self.sc_pr[m-1, c] * self.oc_due_to_cm[m, c]
+                            # Correcting outflows to avoid double counting
+                            self.oc_due_to_pr[m, 0:m] -=  self.oc_both[m,  0:m]
+                            self.oc_due_to_cm[m, 0:m] -=  self.oc_both[m,  0:m]
+                            # Calculating total outflows
+                            oc_total = self.oc_due_to_pr[m, 0:m] + self.oc_due_to_cm[m, 0:m] + self.oc_both[m,  0:m]
+                            # Computing real stock
+                            self.sc_pr[m,0:m] = self.sc_pr[m-1,:m] - oc_total
+                            self.sc_cm[m,0:m] = self.sc_pr[m,0:m]
+                            # no replacement or reuse allowed: fixing outflows
+                            self.oc_pr[m, 0:m] =  oc_total
+                            self.oc_cm[m, 0:m] =  oc_total
                             # 2) Determine inflow from mass balance:
-                             #/ self.sf_pr[m,m] # allow for outflow during first year by rescaling with 1/sf[m,m]
-                            #self.i_cm[m] = self.ds_pr[m] +  self.oc_cm.sum(axis=1)[m]
-                        # 3) Add new inflow to stock and determine future decay of new age-cohort
-                        self.i_pr[m] = self.ds_pr[m] + self.oc_pr.sum(axis=1)[m] 
-                        self.i_cm[m] = self.i_pr[m]
-                        self.sc_pr[m,m] = self.i_pr[m]
+                            # self.i_pr[m] = (self.s_pr[m] - self.sc_pr[m, :].sum())
+                            if self.sf_pr[m,m] != 0: # Else, inflow is 0.
+                                self.i_pr[m] = (self.s_pr[m] - self.sc_pr[m, :].sum()) / self.sf_pr[m,m] # allow for outflow during first year by rescaling with 1/sf[m,m]
+                            self.i_cm[m] = self.i_pr[m] #one new component per new product                         
+                        # 3) Add new inflow to stock 
+                            self.sc_pr[m,m] = self.i_pr[m]
+                            self.sc_cm[m,m] = self.i_cm[m]
                     self.o_pr = self.oc_pr.sum(axis=1)
                     self.o_cm = self.oc_cm.sum(axis=1)
-                    self.sc_cm = self.sc_pr
-                    self.s_cm = self.s_pr
-                    return self.sc_pr, self.sc_cm 
+                    return self.sc_pr, self.i_pr, self.i_cm, self.oc_pr
                 else:
                     raise Exception('No component lifetime specified')
                     return None, None, None, None, None, None
