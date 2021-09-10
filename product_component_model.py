@@ -751,86 +751,92 @@ class ProductComponentModel(object):
         else:
             raise Exception('No stock specified')
             return None, None, None, None, None, None    
+ 
     def case_5(self):
         '''
         Products and components have independent lifetimes. Potential failure of the component is not included in the lifetime of the product. 
-        Components can be replaced, but they cannot be reused. If the product fails, the component is scrapped. If the component fails but the product is still in good shape, 
-        a new components can be used to make the product operational again. Since the lifetimes of the product and the components are independent, replacing the component should have no effect on 
-        the product’s lifetime. 
+        Components cannot be replaced, but they can be reused. If the component fails, the product is scrapped. 
+        If the product fails but the status of the component is still good, it can be reused in a new product. 
+        This case does not necessarily make sense for cars, but could be useful for other applications.
 
-        In this case the lifetime of the product is not limited by the lifetime of a component. 
-        Without an additional logic, this means that component replacements will always happen to allow the vehicle to live the full extent of it's expected lifetime. 
-        As a consequence, there can be components that are barely used in the fleet that are being scrapped wiht the vehicle. 
-        To avoid this, we could again rely on the survival function to only replace components that are either under warranty or that will stay in the fleet for a reasonable amount of time. 
+        To determine the amount of components that have gone out, we take the outflows due to vehicle failures and use the probability of the component still being useful 
+        from the component survival function with a delay tau to ensure that we don't reuse components that will fail soon anyway. Since we attribute simultanious failures 
+        to the components anyway, we should be onm the conservative side of the potential components for reuse. 
 
-        We need to replace the components that are failing and put new ones in products that are still in the stock. 
-        Since there are some products that fail simultainiously as the components, we should not replace all of the component attributed outflows. 
-        We therefore attribute the simultanious failures to products instead of components and use the sf of the components as a share of components that would still be in good condition for reused
-
-        The components are put in products of the same cohort or older. Newer cohorts cannot get older components. 
-
-        Double counting is attributed to the product to make sure that only functional products are considered for replacement
+        The stock composition of the product is no longer equal to the stock composition of the component, but the total stock is. 
         '''
         if self.s_pr is not None:
             if self.lt_pr is not None: 
                 if self.lt_cm is not None:
                     if self.tau_pr is not None:
+                        self.s_cm = self.s_pr #both stocks are always equal
                         self.sc_pr = np.zeros((len(self.t), len(self.t)))
                         self.oc_pr = np.zeros((len(self.t), len(self.t)))
                         self.i_pr = np.zeros(len(self.t))
                         self.sc_cm = np.zeros((len(self.t), len(self.t)))
                         self.oc_cm = np.zeros((len(self.t), len(self.t)))
-                        self.i_cm = np.zeros(len(self.t))
+                        self.i_cm = np.zeros(len(self.t))                 
+                        self.oc_due_to_pr = np.zeros((len(self.t), len(self.t))) #outflows caused by product failure
+                        self.oc_due_to_cm = np.zeros((len(self.t), len(self.t))) #outflows caused by component failure
+                        self.oc_both = np.zeros((len(self.t), len(self.t))) #outflows caused by "simultaneous" failure on the same year
                         self.ds_pr = np.concatenate((np.array([0]), np.diff(self.s_pr)))
                         self.o_cm = np.zeros(len(self.t))
                         self.o_pr = np.zeros(len(self.t))
-                        replacement = np.zeros((len(self.t), len(self.t)))
+                        self.replacements = np.zeros((len(self.t), len(self.t)))
+                        # construct the sf of a product of cohort tc remaining in the stock in year t
+                        self.compute_sf_pr_tau() # Computes sf if not present already.
+                        self.compute_sf_cm() # Computes sf of component if not present already.
+                        
                         # Initializing values
                         self.sc_pr[0,0] = self.s_pr[0]
-                        self.o_pr[0] = 0 
-                        self.i_pr[0] = self.ds_pr[0] - self.o_pr[0]
-                        self.o_pr[1] = 0
-                        self.i_pr[1] = self.ds_pr[1] - self.o_pr[1]
-                        self.sc_pr[1,1] = self.i_pr[1]
-                        
-                        self.sc_cm[0,0] = self.s_pr[0]
+                        if self.sf_pr[0, 0] != 0: # Else, inflow is 0.
+                            self.i_pr[0] = self.s_pr[0] / self.sf_pr[0, 0]
+                        self.sc_pr[:len(self.t), 0] = self.i_pr[0] * self.sf_pr[:len(self.t), 0] # Future decay of age-cohort of year 0.
+                        self.oc_pr[0, 0] = self.i_pr[0] - self.sc_pr[0, 0]
+                        # The intial values are the same for the component
+                        self.sc_cm[0,0] = self.sc_pr[0,0]
                         self.o_cm[0] = 0 
-                        self.i_cm[0] = self.ds_pr[0] - self.o_pr[0]
-                        self.o_cm[1] = 0
-                        self.i_cm[1] = self.ds_pr[1] - self.o_pr[1]
-                        self.sc_cm[1,1] = self.i_pr[1]
-
-                        self.compute_sf_pr_tau() # Computes sf if not present already.
-                        # Since now we need the share of components that will still be useful in tau_cm years, 
-                        # we need to compute the sf_cm curve for the length of t+tau_cm
-                        self.compute_sf_cm() # Computes sf od component if not present already.
+                        self.i_cm[0] = self.i_pr[0]
+                        
                         # all other years:            
                         for m in range(1, len(self.t)):  # for all years m, starting in second year
-                            for c in range(m+1):
                             # 1) Compute outflow from previous age-cohorts up to m-1
-                                if  self.sf_cm[m-1,c] != 0 and self.sf_pr[m-1,c] != 0: # Else, inflow is 0.
-                                    self.oc_pr[m, c] = self.sc_pr[m-1, c] /self.sf_pr[m-1,c] * abs((self.sf_pr[m, c] - self.sf_pr[m-1, c]))  # alculating outflows attributed to product failures
-                                    # FIXME: I take here sc_cm instead of sc_pr since I think that the outflows of batteries should follow the cohort composition of the stock of batteries, not of cars. @Romain: Does this make sense? 
-                                    self.oc_cm[m, c] = (self.sc_cm[m-1, c]- self.oc_pr[m, c])/self.sf_cm[m-1,c] * abs((self.sf_cm[m, c] - self.sf_cm[m-1, c]))# Calculating outflows attributed to component failures 
-                                    # Defining the amount of products eligible for component replacement 
-                                    replacement[m,c] = (self.sf_pr[m+self.tau_pr, c]) * self.oc_cm[m, c]
-                                    # Correcting outflows0
-                                    self.oc_pr[m, c] = self.oc_pr[m, c]+ self.oc_cm[m, c]  - replacement[m,c]
-                                    self.oc_cm[m, c] = self.oc_cm[m, c] +  self.sc_pr[m-1, c] /self.sf_pr[m-1,c] * abs((self.sf_pr[m, c] - self.sf_pr[m-1, c]))
-                                    self.sc_pr[m,c] = self.sc_pr[m-1,c] - self.oc_pr[m, c]  # Computing real stock
-                                    self.sc_cm[m,c] = self.sc_cm[m-1,c] - self.oc_cm[m,c]
-                                self.i_pr[m] = self.ds_pr[m] + self.oc_pr.sum(axis=1)[m] 
-                                self.i_cm[m] = self.ds_pr[m] + self.oc_cm.sum(axis=1)[m]
+                            if self.sf_pr[m,m] != 0 and self.sf_cm[m,m] != 0: # Else, inflow is 0.
+                                for c in range(m):
+                                    # Calculating outflows attributed to product failures, correcting for lower value of remaining stock 
+                                    if self.sf_pr[m-1,c] !=0:
+                                        self.oc_due_to_pr[m, c] = self.sc_pr[m-1, c] / self.sf_pr[m-1, c] * abs(self.sf_pr[m, c] - self.sf_pr[m-1, c])
+                                    # Calculating outflows attributed to component failures, correcting for lower value of remaining stock
+                                    if self.sf_cm[m-1,c] !=0:
+                                        self.oc_due_to_cm[m, c] = self.sc_cm[m-1, c] / self.sf_cm[m-1,c] * abs(self.sf_cm[m, c] - self.sf_cm[m-1, c])
+                                    # Calculating outflows where both product and components failed during the year
+                                    if self.sc_pr[m-1, c]!=0:
+                                        self.oc_both[m, c] = self.oc_due_to_pr[m, c] / self.sc_pr[m-1, c] * self.oc_due_to_cm[m, c]
+                                # Correcting outflows to avoid double counting
+                                self.oc_due_to_pr[m, 0:m] -=  self.oc_both[m,  0:m]
+                                self.oc_due_to_cm[m, 0:m] -=  self.oc_both[m,  0:m]
+                                # Calculating share of components that is still useful according to their survival probability in tau years relative to the year of outflow
+                                if self.sf_pr[m,m] != 0:
+                                    self.replacements[m,0:m] = self.oc_due_to_cm[m,0:m] * (self.sf_pr[m+self.tau_pr, 0:m] / self.sf_pr[m, 0:m])
+                                # Calculating actual outflows after component has been reused
+                                self.oc_cm[m, 0:m] =  self.oc_due_to_pr[m, 0:m] + self.oc_due_to_cm[m, 0:m] + self.oc_both[m,  0:m]
+                                self.oc_pr[m, 0:m] =  self.oc_cm[m, 0:m] - self.replacements[m,  0:m]
+                                # Computing real stock
+                                self.sc_pr[m,0:m] = self.sc_pr[m-1,0:m] - self.oc_pr[m, 0:m]
+                                self.sc_cm[m,0:m] = self.sc_cm[m-1,0:m] - self.oc_cm[m, 0:m]
+                                # 2) Determine inflow from mass balance:
+                                if self.sf_pr[m,m] != 0: # Else, inflow is 0.
+                                    self.i_pr[m] = (self.s_pr[m] - self.sc_pr[m, :].sum()) / self.sf_pr[m,m] # allow for outflow during first year by rescaling with 1/sf[m,m]
+                                    #TODO: We could also calculate the inflows of component as inflows of product minus the replacement share. @Romain: Which approach do you prefer? Should be the same anyway
+                                    self.i_cm[m] = (self.s_cm[m] - self.sc_cm[m, :].sum()) / self.sf_cm[m,m] # inflows of component is greater than of products, since products can get spare components
+                            # 3) Add new inflow to stock 
                                 self.sc_pr[m,m] = self.i_pr[m]
                                 self.sc_cm[m,m] = self.i_cm[m]
                         self.o_pr = self.oc_pr.sum(axis=1)
                         self.o_cm = self.oc_cm.sum(axis=1)
-                        self.s_pr = self.sc_pr.sum(axis=1)
-                        self.s_cm = self.sc_cm.sum(axis=1)
-                        #return self.sc_pr, self.sc_cm, self.i_pr, self.i_cm, self.oc_pr, self.oc_cm
+                        return self.sc_pr, self.i_pr, self.i_cm, self.oc_pr
                     else:
-                        raise Exception('No delay specified')
-                        return None, None, None, None, None, None
+                        raise Exception('No delay coefficient specified for product tau_pr')
                 else:
                     raise Exception('No component lifetime specified')
                     return None, None, None, None, None, None
@@ -839,87 +845,7 @@ class ProductComponentModel(object):
                 return None, None, None, None, None, None
         else:
             raise Exception('No stock specified')
-            return None, None, None, None, None, None
-
-    # This code was used before and is no longer needed, if we find that the new version above is correct.
-    # def case_5(self):
-    #     '''
-    #     Products and components have independent lifetimes. Potential failure of the component is not included in the lifetime of the product. 
-    #     Components can be replaced, but they cannot be reused. If the product fails, the component is scrapped. If the component fails but the product is still in good shape, 
-    #     a new components can be used to make the product operational again. Since the lifetimes of the product and the components are independent, replacing the component should have no effect on 
-    #     the product’s lifetime. 
-
-    #     In this case the lifetime of the product is not limited by the lifetime of a component. 
-    #     Without an additional logic, this means that component replacements will always happen to allow the vehicle to live the full extent of it's expected lifetime. 
-    #     As a consequence, there can be components that are barely used in the fleet that are being scrapped wiht the vehicle. 
-    #     To avoid this, we could again rely on the survival function to only replace components that are either under warranty or that will stay in the fleet for a reasonable amount of time. 
-
-    #     We need to replace the components that are failing and put new ones in products that are still in the stock. 
-    #     Since there are some products that fail simultainiously as the components, we should not replace all of the component attributed outflows. 
-    #     We therefore attribute the simultanious failures to products instead of components and use the sf of the components as a share of components that would still be in good condition for reused
-
-    #     The components are put in products of the same cohort or older. Newer cohorts cannot get older components. 
-
-    #     Double counting is attributed to the product to make sure that only functional products are considered for replacement
-    #     '''
-    #     if self.s_pr is not None:
-    #         if self.lt_pr is not None: 
-    #             if self.lt_cm is not None:
-    #                 if self.tau_pr is not None:
-    #                     self.sc_pr = np.zeros((len(self.t), len(self.t)))
-    #                     self.oc_pr = np.zeros((len(self.t), len(self.t)))
-    #                     self.i_pr = np.zeros(len(self.t))
-    #                     self.sc_cm = np.zeros((len(self.t), len(self.t)))
-    #                     self.oc_cm = np.zeros((len(self.t), len(self.t)))
-    #                     self.i_cm = np.zeros(len(self.t))
-    #                     self.ds_pr = np.concatenate((np.array([0]), np.diff(self.s_pr)))
-    #                     self.o_cm = np.zeros(len(self.t))
-    #                     self.o_pr = np.zeros(len(self.t))
-    #                     replacement = np.zeros((len(self.t), len(self.t)))
-    #                     # Initializing values
-    #                     self.sc_pr[0,0] = self.s_pr[0]
-    #                     self.o_pr[0] = 0 
-    #                     self.i_pr[0] = self.ds_pr[0] - self.o_pr[0]
-    #                     self.o_pr[1] = 0
-    #                     self.i_pr[1] = self.ds_pr[1] - self.o_pr[1]
-    #                     self.sc_pr[1,1] = self.i_pr[1]
-
-    #                     self.compute_sf_pr_tau() # Computes sf if not present already.
-    #                     # Since now we need the share of components that will still be useful in tau_cm years, 
-    #                     # we need to compute the sf_cm curve for the length of t+tau_cm
-    #                     self.compute_sf_cm() # Computes sf od component if not present already.
-    #                     # all other years:            
-    #                     for m in range(1, len(self.t)):  # for all years m, starting in second year
-    #                         for c in range(m+1):
-    #                         # 1) Compute outflow from previous age-cohorts up to m-1
-    #                             if  self.sf_cm[m-1,c] != 0 and self.sf_pr[m-1,c] != 0: # Else, inflow is 0.
-    #                                 self.oc_pr[m, c] = self.sc_pr[m-1, c] /self.sf_pr[m-1,c] * abs((self.sf_pr[m, c] - self.sf_pr[m-1, c]))  # alculating outflows attributed to product failures
-    #                                 self.oc_cm[m, c] = (self.sc_pr[m-1, c]- self.oc_pr[m, c])/self.sf_cm[m-1,c] * abs((self.sf_cm[m, c] - self.sf_cm[m-1, c]))# Calculating outflows attributed to component failures 
-    #                                 # Defining the amount of products eligible for component replacement 
-    #                                 replacement[m,c] = (self.sf_pr[m+self.tau_pr, c]) * self.oc_cm[m, c]
-    #                                 # Correcting outflows0
-    #                                 self.oc_pr[m, c] = self.oc_pr[m, c]+ self.oc_cm[m, c]  - replacement[m,c]
-    #                                 self.oc_cm[m, c] = self.oc_pr[m, c] +  replacement[m,c]
-    #                                 self.sc_pr[m,c] = self.sc_pr[m-1,c] - self.oc_pr[m, c]  # Computing real stock
-    #                                 self.sc_cm[m,c] = self.sc_cm[m-1,c] - self.oc_cm[m,c]
-    #                             self.i_pr[m] = self.ds_pr[m] + self.oc_pr.sum(axis=1)[m] 
-    #                             self.i_cm[m] = self.ds_pr[m] + self.oc_cm.sum(axis=1)[m]
-    #                             self.sc_pr[m,m] = self.i_pr[m]
-    #                         # TODO: Need to add stock by cohort of batteries
-    #                     return self.sc_pr, self.sc_cm, self.i_pr, self.i_cm, self.oc_pr, self.oc_cm
-    #                 else:
-    #                     raise Exception('No delay specified')
-    #                     return None, None, None, None, None, None
-    #             else:
-    #                 raise Exception('No component lifetime specified')
-    #                 return None, None, None, None, None, None
-    #         else:
-    #             raise Exception('No product lifetime specified')
-    #             return None, None, None, None, None, None
-    #     else:
-    #         raise Exception('No stock specified')
-    #         return None, None, None, None, None, None
-            
+            return None, None, None, None, None, None    
 
     def case_6(self):
         '''
