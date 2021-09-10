@@ -76,7 +76,7 @@ class ProductComponentModel(object):
     Basic initialisation and dimension check methods
     """
 
-    def __init__(self, t=None, i_pr=None, i_cm=None, o_pr=None, o_cm=None, s_pr=None, s_cm=None, lt_pr=None, lt_cm=None, sc_pr=None, sc_cm=None, oc_pr=None, oc_cm=None, name='PCM', pdf_pr=None, pdf_cm=None, sf_pr=None, sf_cm=None, r=None, tau_cm=None, tau_pr=None, d=None, b=None):
+    def __init__(self, t=None, i_pr=None, i_cm=None, o_pr=None, o_cm=None, s_pr=None, s_cm=None, lt_pr=None, lt_cm=None, sc_pr=None, sc_cm=None, oc_pr=None, oc_cm=None, name='PCM', pdf_pr=None, pdf_cm=None, sf_pr=None, sf_cm=None, reuse_coeff=None, tau_cm=None, tau_pr=None, d=None, b=None):
         """ Init function. Assign the input data to the instance of the object."""
         self.t = t  # optional
 
@@ -115,7 +115,7 @@ class ProductComponentModel(object):
         self.lt_cm = lt_cm  # optional
         self.name = name  # optional
 
-        self.r = r # optional
+        self.reuse_coeff = reuse_coeff # optional
         self.tau_cm = tau_cm # optional
         self.tau_pr = tau_pr # optional
 
@@ -674,7 +674,7 @@ class ProductComponentModel(object):
         if self.s_pr is not None:
             if self.lt_pr is not None: 
                 if self.lt_cm is not None:
-                    if self.tau_cm is not None:
+                    if self.reuse_coeff is not None:
                         self.s_cm = self.s_pr #both stocks are always equal
                         self.sc_pr = np.zeros((len(self.t), len(self.t)))
                         self.oc_pr = np.zeros((len(self.t), len(self.t)))
@@ -691,7 +691,7 @@ class ProductComponentModel(object):
                         self.reused_cm = np.zeros((len(self.t), len(self.t)))
                         # construct the sf of a product of cohort tc remaining in the stock in year t
                         self.compute_sf_pr() # Computes sf if not present already.
-                        self.compute_sf_cm_tau() # Computes sf of component if not present already.
+                        self.compute_sf_cm() # Computes sf of component if not present already.
                         
                         # Initializing values
                         self.sc_pr[0,0] = self.s_pr[0]
@@ -721,8 +721,9 @@ class ProductComponentModel(object):
                                 # Correcting outflows to avoid double counting
                                 self.oc_due_to_pr[m, 0:m] -=  self.oc_both[m,  0:m]
                                 self.oc_due_to_cm[m, 0:m] -=  self.oc_both[m,  0:m]
-                                # Calculating share of components that is still useful
-                                self.reused_cm[m,0:m] = self.oc_due_to_pr[m,0:m] * self.sf_cm[m+self.tau_cm, 0:m]
+                                # Calculating share of components that is still useful according to their survival probability in tau years relative to the year of outflow
+                                if self.sf_cm[m,m] != 0:
+                                    self.reused_cm[m,0:m] = self.oc_due_to_pr[m,0:m] * self.reuse_coeff # * (self.sf_cm[m+self.tau_cm, 0:m] / self.sf_cm[m, 0:m])
                                 # Calculating actual outflows after component has been reused
                                 self.oc_pr[m, 0:m] =  self.oc_due_to_pr[m, 0:m] + self.oc_due_to_cm[m, 0:m] + self.oc_both[m,  0:m]
                                 self.oc_cm[m, 0:m] =  self.oc_pr[m, 0:m] - self.reused_cm[m,0:m]
@@ -740,7 +741,7 @@ class ProductComponentModel(object):
                         self.o_cm = self.oc_cm.sum(axis=1)
                         return self.sc_pr, self.i_pr, self.i_cm, self.oc_pr
                     else:
-                        raise Exception('No component tau specified')
+                        raise Exception('No reuse coefficient specified')
                 else:
                     raise Exception('No component lifetime specified')
                     return None, None, None, None, None, None
@@ -905,7 +906,6 @@ class ProductComponentModel(object):
     #                             self.i_cm[m] = self.ds_pr[m] + self.oc_cm.sum(axis=1)[m]
     #                             self.sc_pr[m,m] = self.i_pr[m]
     #                         # TODO: Need to add stock by cohort of batteries
-
     #                     return self.sc_pr, self.sc_cm, self.i_pr, self.i_cm, self.oc_pr, self.oc_cm
     #                 else:
     #                     raise Exception('No delay specified')
