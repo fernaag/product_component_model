@@ -817,8 +817,9 @@ class ProductComponentModel(object):
                                 self.oc_due_to_cm[m, 0:m] -=  self.oc_both[m,  0:m]
                                 # Calculating share of components that is still useful according to their survival probability in tau years relative to the year of outflow
                                 if self.sf_pr[m,m] != 0:
+                                    # The share of products that gets a replacement is only the share that is expected to remain in use for at least tau_pr more years
                                     self.replacements[m,0:m] = self.oc_due_to_cm[m,0:m] * (self.sf_pr[m+self.tau_pr, 0:m] / self.sf_pr[m, 0:m])
-                                # Calculating actual outflows after component has been reused
+                                # Calculating actual outflows after component has been replaced
                                 self.oc_cm[m, 0:m] =  self.oc_due_to_pr[m, 0:m] + self.oc_due_to_cm[m, 0:m] + self.oc_both[m,  0:m]
                                 self.oc_pr[m, 0:m] =  self.oc_cm[m, 0:m] - self.replacements[m,  0:m]
                                 # Computing real stock
@@ -826,9 +827,9 @@ class ProductComponentModel(object):
                                 self.sc_cm[m,0:m] = self.sc_cm[m-1,0:m] - self.oc_cm[m, 0:m]
                                 # 2) Determine inflow from mass balance:
                                 if self.sf_pr[m,m] != 0: # Else, inflow is 0.
-                                    self.i_pr[m] = (self.s_pr[m] - self.sc_pr[m, :].sum()) / self.sf_pr[m,m] # allow for outflow during first year by rescaling with 1/sf[m,m]
-                                    #TODO: We could also calculate the inflows of component as inflows of product minus the replacement share. @Romain: Which approach do you prefer? Should be the same anyway
-                                    self.i_cm[m] = (self.s_cm[m] - self.sc_cm[m, :].sum()) / self.sf_cm[m,m] # inflows of component is greater than of products, since products can get spare components
+                                    #TODO: Do you agree with this approach for the inflows?
+                                    self.i_cm[m] = (self.s_cm[m] - self.sc_cm[m, :].sum()) / self.sf_cm[m,m] # allow for outflow during first year by rescaling with 1/sf[m,m]
+                                self.i_pr[m] = self.i_cm[m] -  self.replacements[m,0:m].sum() # Inflows of product is equal to component minus the share that could get replacement
                             # 3) Add new inflow to stock 
                                 self.sc_pr[m,m] = self.i_pr[m]
                                 self.sc_cm[m,m] = self.i_cm[m]
