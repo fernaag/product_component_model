@@ -77,7 +77,7 @@ class ProductComponentModel(object):
     Basic initialisation and dimension check methods
     """
 
-    def __init__(self, t=None, i_pr=None, i_cm=None, o_pr=None, o_cm=None, s_pr=None, s_cm=None, lt_pr=None, lt_cm=None, sc_pr=None, sc_cm=None, oc_pr=None, oc_cm=None, name='PCM', pdf_pr=None, pdf_cm=None, sf_pr=None, sf_cm=None, reuse_coeff=None, tau_cm=None, tau_pr=None, d=None, b=None):
+    def __init__(self, t=None, i_pr=None, i_cm=None, o_pr=None, o_cm=None, s_pr=None, s_cm=None, lt_pr=None, lt_cm=None, sc_pr=None, sc_cm=None, oc_pr=None, oc_cm=None, name='PCM', pdf_pr=None, pdf_cm=None, r=None, sf_pr=None, sf_cm=None, reuse_coeff=None, tau_cm=None, tau_pr=None, d=None, b=None):
         """ Init function. Assign the input data to the instance of the object."""
         self.t = t  # optional
 
@@ -112,7 +112,8 @@ class ProductComponentModel(object):
                     if np.array(lt_cm[ThisKey]).shape[0] == 1:
                         lt_cm[ThisKey] = np.tile(lt_cm[ThisKey], len(t))
 
-        self.lt_pr = lt_pr  # optional
+        self.r = r  # optional
+		self.lt_pr = lt_pr  # optional
         self.lt_cm = lt_cm  # optional
         self.name = name  # optional
 
