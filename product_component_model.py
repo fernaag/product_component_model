@@ -112,8 +112,8 @@ class ProductComponentModel(object):
                     if np.array(lt_cm[ThisKey]).shape[0] == 1:
                         lt_cm[ThisKey] = np.tile(lt_cm[ThisKey], len(t))
 
-        self.r = r  # optional
-		self.lt_pr = lt_pr  # optional
+        self.r = r # optional
+        self.lt_pr = lt_pr  # optional
         self.lt_cm = lt_cm  # optional
         self.name = name  # optional
 
@@ -705,6 +705,7 @@ class ProductComponentModel(object):
                         self.sc_cm[0,0] = self.sc_pr[0,0]
                         self.o_cm[0] = 0 
                         self.i_cm[0] = self.i_pr[0]
+        
                         
                         # all other years:            
                         for m in range(1, len(self.t)):  # for all years m, starting in second year
