@@ -310,9 +310,9 @@ class ProductComponentModel(object):
             # sf already exists
             return self.sf_cm
 
-    def compute_hz_pr(self): # pseudo hazard functions
+    def compute_hz_pr(self): # hazard functions
         """
-        Pseudo-hazard table self.hz_pr(m,n) denotes the probability of existing the stock during year m 
+        Hazard table self.hz_pr(m,n) denotes the probability of failing during year m 
         for a product inflow from year n (age-cohort) still present at the beginning of year m (after m-n years).
         """
         self.hz_pr = np.zeros((len(self.t), len(self.t)))
@@ -328,9 +328,9 @@ class ProductComponentModel(object):
                         self.hz_pr [m+1,n] = (self.sf_pr[m,n] - self.sf_pr[m+1,n]) / self.sf_pr[m,n] 
         return self.hz_pr
 
-    def compute_hz_cm(self): # pseudo hazard functions
+    def compute_hz_cm(self): # hazard functions
         """
-        Pseudo-hazard table self.hz_cm(m,n) denotes the probability of existing the stock during year m 
+        Hazard table self.hz_cm(m,n) denotes the probability of failing during year m 
         for a component inflow from year n (age-cohort) still present at the beginning of year m (after m-n years).
         """
         self.hz_cm = np.zeros((len(self.t), len(self.t)))
@@ -827,8 +827,8 @@ class ProductComponentModel(object):
                 self.i_pr[m] = self.ds_pr[m] + self.o_tpc[m,:,:].sum()                   
                 self.i_cm[m] = self.i_pr[m] #one new component per new product       
                 
-        self.o_pr = self.o_tpc.sum(axis=1).sum(axis=1)
-        self.o_cm = self.o_tpc.sum(axis=1).sum(axis=1)
+        self.o_pr = np.einsum('tpc->t', self.o_tpc)
+        self.o_cm = np.einsum('tpc->t', self.o_tpc)
         return self.s_tpc, self.i_pr, self.i_cm, self.o_pr, self.o_cm
 
     
@@ -890,14 +890,15 @@ class ProductComponentModel(object):
                             
         for m in range(len(self.t)):  # for all years m
             if m>0: # the initial stock is assumed to be 0
-                # simultaneaous failure given by multiplying both hazard functions for all cohorts <m
-                self.o_tpc_both[m,:m,:m] = self.s_tpc[m-1,:m,:m] * self.hz_pr[m,:m] * self.hz_cm[m,:m]
-                # failure from products only given by multiplying product hazard function and
-                # assuming that the probability of component failure is independent from product failure
-                self.o_tpc_pr[m,:m,:m] = self.s_tpc[m-1,:m,:m] * self.hz_pr[m,:m] * (1-self.hz_cm[m,:m])
-                # failure from components only given by multiplying component hazard function and
-                # assuming that the probability of product failure is independent from product failure
-                self.o_tpc_cm[m,:m,:m] = self.s_tpc[m-1,:m,:m] * self.hz_cm[m,:m] * (1-self.hz_pr[m,:m])
+                for p in range(m):     # for all product cohorts < m
+                    # simultaneaous failure given by multiplying both hazard functions for all cohorts <m
+                    self.o_tpc_both[m,p,:m] = self.s_tpc[m-1,p,:m] * self.hz_pr[m,p] * self.hz_cm[m,:m]
+                    # failure from products only given by multiplying product hazard function and
+                    # assuming that the probability of component failure is independent from product failure
+                    self.o_tpc_pr[m,p,:m] = self.s_tpc[m-1,p,:m] * self.hz_pr[m,p] * (1-self.hz_cm[m,:m])
+                    # failure from components only given by multiplying component hazard function and
+                    # assuming that the probability of product failure is independent from product failure
+                    self.o_tpc_cm[m,p,:m] = self.s_tpc[m-1,p,:m] * self.hz_cm[m,:m] * (1-self.hz_pr[m,p])
                 
                 # Total outflows for all cohorts <m
                 self.o_tpc[m,:m,:m] = self.o_tpc_pr[m,:m,:m] + self.o_tpc_cm[m,:m,:m] + self.o_tpc_both[m,:m,:m]
@@ -911,7 +912,7 @@ class ProductComponentModel(object):
                 # Add reused components to stock in a new product cohort
                 new_inflow_pr = self.s_pr[m] - self.s_tpc[m,:m,:m].sum()
                 if new_inflow_pr >= self.reuse_tpc_cm[m,:m,:m].sum():
-                    self.s_tpc[m,m,:m] = self.reuse_tpc_cm[m,:m,:m].sum(axis=0)
+                    self.s_tpc[m,m,:m] = np.einsum('pc -> c', self.reuse_tpc_cm[m,:m,:m])
                                         
                 ##### TO DO: fix case when there is too much reuse, also in the i_cm calculation
                 
@@ -948,8 +949,8 @@ class ProductComponentModel(object):
             # self.i_cm[m] = self.ds_pr[m] + self.o_tpc[m,:,:].sum() -  self.reuse_tpc_cm[m,:m+1,:m+1].sum()
             self.i_cm[m] = self.s_tpc[m,m,m] + self.o_tpc[m,m,m]
                 
-        self.o_pr = self.o_tpc.sum(axis=1).sum(axis=1)
-        self.o_cm = self.o_tpc.sum(axis=1).sum(axis=1)- self.reuse_tpc_cm[m,:m,:m].sum()
+        self.o_pr = np.einsum('tpc->t', self.o_tpc)
+        self.o_cm = np.einsum('tpc->t', self.o_tpc - self.reuse_tpc_cm)
         return self.s_tpc, self.i_pr, self.i_cm, self.o_pr, self.o_cm
     
     def case_4_new_max_age(self,max_age):
@@ -1009,14 +1010,15 @@ class ProductComponentModel(object):
                             
         for m in range(len(self.t)):  # for all years m
             if m>0: # the initial stock is assumed to be 0
-                # simultaneaous failure given by multiplying both hazard functions for all cohorts <m
-                self.o_tpc_both[m,:m,:m] = self.s_tpc[m-1,:m,:m] * self.hz_pr[m,:m] * self.hz_cm[m,:m]
-                # failure from products only given by multiplying product hazard function and
-                # assuming that the probability of component failure is independent from product failure
-                self.o_tpc_pr[m,:m,:m] = self.s_tpc[m-1,:m,:m] * self.hz_pr[m,:m] * (1-self.hz_cm[m,:m])
-                # failure from components only given by multiplying component hazard function and
-                # assuming that the probability of product failure is independent from product failure
-                self.o_tpc_cm[m,:m,:m] = self.s_tpc[m-1,:m,:m] * self.hz_cm[m,:m] * (1-self.hz_pr[m,:m])
+                for p in range(m):     # for all product cohorts < m
+                    # simultaneaous failure given by multiplying both hazard functions for all cohorts <m
+                    self.o_tpc_both[m,p,:m] = self.s_tpc[m-1,p,:m] * self.hz_pr[m,p] * self.hz_cm[m,:m]
+                    # failure from products only given by multiplying product hazard function and
+                    # assuming that the probability of component failure is independent from product failure
+                    self.o_tpc_pr[m,p,:m] = self.s_tpc[m-1,p,:m] * self.hz_pr[m,p] * (1-self.hz_cm[m,:m])
+                    # failure from components only given by multiplying component hazard function and
+                    # assuming that the probability of product failure is independent from product failure
+                    self.o_tpc_cm[m,p,:m] = self.s_tpc[m-1,p,:m] * self.hz_cm[m,:m] * (1-self.hz_pr[m,p])
                 
                 # Total outflows for all cohorts <m
                 self.o_tpc[m,:m,:m] = self.o_tpc_pr[m,:m,:m] + self.o_tpc_cm[m,:m,:m] + self.o_tpc_both[m,:m,:m]
@@ -1024,34 +1026,36 @@ class ProductComponentModel(object):
                 # subtract outflows of cohorts <m from the previous stock 
                 self.s_tpc[m,:m,:m] = self.s_tpc[m-1,:m,:m] - self.o_tpc[m,:m,:m]
                 
+               
                 # component reuse 
                 oldest_cohort = max(m-max_age, 0)
-                self.reuse_tpc_cm[m,oldest_cohort:m,:m] = self.reuse_coeff * self.o_tpc_pr[m,oldest_cohort:m,:m]    
+                self.reuse_tpc_cm[m,:m,oldest_cohort:m] = self.reuse_coeff * self.o_tpc_pr[m,:m,oldest_cohort:m]    
                 
                 # Add reused components to stock in a new product cohort
                 new_inflow_pr = self.s_pr[m] - self.s_tpc[m,:m,:m].sum()
                 if new_inflow_pr >= self.reuse_tpc_cm[m,:m,:m].sum():
-                    self.s_tpc[m,m,:m] = self.reuse_tpc_cm[m,:m,:m].sum(axis=0)
+                    self.s_tpc[m,m,:m] = np.einsum('pc -> c', self.reuse_tpc_cm[m,:m,:m])
+                else:
+                    print(m,' too many components to reuse')
                     
                 ##### TO DO: fix case when there is too much reuse, also in the i_cm calculation
                 
                 # Add new product cohort with new components to stock 
-                self.s_tpc[m,m,m] = self.s_pr[m] - self.s_tpc[m,:m+1,:m+1].sum()
+                self.s_tpc[m,m,m] = self.s_pr[m] - self.s_tpc[m,:m+1,:m].sum()
            
             # Calculate new product inflow, accounting for outflows in the first year
-            if self.hz_pr[m,m] != 1: # Else, inflow is 0.
-                self.o_tpc_both[m,m,:m+1] = self.s_tpc[m,m,:m+1] * self.hz_pr[m,m] * self.hz_cm[m,:m+1]
-                # failure from products only given by multiplying product hazard function and
-                # assuming that the probability of component failure is independent from product failure
-                self.o_tpc_pr[m,m,:m+1] = self.s_tpc[m,m,:m+1] * self.hz_pr[m,m] * (1-self.hz_cm[m,:m+1])
-                # failure from components only given by multiplying component hazard function and
-                # assuming that the probability of product failure is independent from product failure
-                self.o_tpc_cm[m,m,:m+1] = self.s_tpc[m,m,:m+1] * self.hz_cm[m,:m+1] * (1-self.hz_pr[m,m])
-                # Total outflows
-                self.o_tpc[m,m,:m+1] = self.o_tpc_pr[m,m,:m+1] + self.o_tpc_cm[m,m,:m+1] + self.o_tpc_both[m,m,:m+1]
-                
-                self.i_pr[m] = self.ds_pr[m] + self.o_tpc[m,:,:].sum() 
-
+            self.o_tpc_both[m,m,:m+1] = self.s_tpc[m,m,:m+1] * self.hz_pr[m,m] * self.hz_cm[m,:m+1]
+            # failure from products only given by multiplying product hazard function and
+            # assuming that the probability of component failure is independent from product failure
+            self.o_tpc_pr[m,m,:m+1] = self.s_tpc[m,m,:m+1] * self.hz_pr[m,m] * (1-self.hz_cm[m,:m+1])
+            # failure from components only given by multiplying component hazard function and
+            # assuming that the probability of product failure is independent from product failure
+            self.o_tpc_cm[m,m,:m+1] = self.s_tpc[m,m,:m+1] * self.hz_cm[m,:m+1] * (1-self.hz_pr[m,m])
+            # Total outflows
+            self.o_tpc[m,m,:m+1] = self.o_tpc_pr[m,m,:m+1] + self.o_tpc_cm[m,m,:m+1] + self.o_tpc_both[m,m,:m+1]
+            
+            # self.i_pr[m] = self.ds_pr[m] + self.o_tpc[m,:m+1,:m+1].sum() 
+            self.i_pr[m] = self.ds_pr[m] + self.o_tpc[m,m,m]
             # Calculate new component inflow, accounting for outflows in the first year
 
             self.o_tpc_both[m,m,m] = self.s_tpc[m,m,m] * self.hz_pr[m,m] * self.hz_cm[m,m]
@@ -1064,12 +1068,11 @@ class ProductComponentModel(object):
             # Total outflows
             self.o_tpc[m,m,m] = self.o_tpc_pr[m,m,m] + self.o_tpc_cm[m,m,m] + self.o_tpc_both[m,m,m]
                       
-            # self.i_cm[m] = self.ds_pr[m] + self.o_tpc[m,:,:].sum() -  self.reuse_tpc_cm[m,:m+1,:m+1].sum()
             self.i_cm[m] = self.s_tpc[m,m,m] + self.o_tpc[m,m,m]
-                
-        self.o_pr = self.o_tpc.sum(axis=1).sum(axis=1)
-        self.o_cm = self.o_tpc.sum(axis=1).sum(axis=1)- self.reuse_tpc_cm[m,:m,:m].sum()
-        return self.s_tpc, self.i_pr, self.i_cm, self.o_pr, self.o_cm    
+            
+        self.o_pr = np.einsum('tpc->t', self.o_tpc)
+        self.o_cm = np.einsum('tpc->t', self.o_tpc - self.reuse_tpc_cm)
+        return self.s_tpc, self.i_pr, self.i_cm, self.o_pr, self.o_cm
     
         
     def case_4(self):
@@ -1166,6 +1169,129 @@ class ProductComponentModel(object):
         else:
             raise Exception('No stock specified')
             return None, None, None, None, None, None    
+        
+        
+    def case_5_new(self):
+        '''
+        Products and components have independent lifetimes. Potential failure of the component is not included in the lifetime of the product. 
+        Components cannot be replaced, but they can be reused. If the component fails, the product is scrapped. 
+        If the product fails but the status of the component is still good, it can be reused in a new product. 
+        This case does not necessarily make sense for cars, but could be useful for other applications.
+
+        To determine the amount of components that have gone out, we take the outflows due to vehicle failures and use the probability of the component still being useful 
+        from the component survival function with a delay tau to ensure that we don't reuse components that will fail soon anyway. Since we attribute simultanious failures 
+        to the components anyway, we should be onm the conservative side of the potential components for reuse. 
+
+        The stock composition of the product is no longer equal to the stock composition of the component, but the total stock is. 
+        '''
+        
+        if self.s_pr is None:
+            raise Exception('No stock specified')
+            return None, None, None, None, None
+        if self.lt_pr is  None: 
+            raise Exception('No product lifetime specified')
+            return None, None, None, None, None
+        if self.lt_cm is None:
+            raise Exception('No component lifetime specified')
+            return None, None, None, None, None
+        
+        # stock composition per year, product cohort and component cohort
+        self.s_tpc = np.zeros((len(self.t), len(self.t), len(self.t))) #
+        # outflows caused by simultaneous product and component failure:
+        self.o_tpc_both = np.zeros((len(self.t), len(self.t), len(self.t))) 
+        # outflows caused by product failure only:
+        self.o_tpc_pr = np.zeros((len(self.t), len(self.t), len(self.t))) 
+        # outflows caused by product failure only:
+        self.o_tpc_cm = np.zeros((len(self.t), len(self.t), len(self.t))) 
+        # total outflows:
+        self.o_tpc = np.zeros((len(self.t), len(self.t), len(self.t)))
+        self.i_pr = np.zeros(len(self.t)) # product inflows
+        self.i_cm = np.zeros(len(self.t)) # component inflows
+        # stock change of product:
+        self.ds_pr = np.concatenate(([self.s_pr[0]], np.diff(self.s_pr)))
+        
+        self.o_cm = np.zeros(len(self.t)) # component outflows
+        self.o_pr = np.zeros(len(self.t)) # product outflows
+        
+        # product reuse
+        self.reuse_tpc_pr = np.zeros((len(self.t), len(self.t), len(self.t))) 
+        
+        # construct the hazard functions of product and components
+        self.compute_sf_pr() # Computes sf if not present already.
+        self.compute_sf_cm() # Computes sf of component if not present already.
+        self.compute_hz_pr() # product hazard function
+        self.compute_hz_cm() # component hazard function
+ 
+        # Initializing values
+        self.s_tpc[0,0,0] = self.s_pr[0]
+        new_inflow_pr = 0
+
+        for m in range(len(self.t)):  # for all years m
+            if m>0: # the initial stock is assumed to be 0
+                for c in range(m):     # for all component cohorts < m
+                    # simultaneaous failure given by multiplying both hazard functions for all cohorts <m
+                    self.o_tpc_both[m,:m,c] = self.s_tpc[m-1,:m,c] * self.hz_pr[m,:m] * self.hz_cm[m,c]
+                    # failure from products only given by multiplying product hazard function and
+                    # assuming that the probability of component failure is independent from product failure
+                    self.o_tpc_pr[m,:m,c] = self.s_tpc[m-1,:m,c] * self.hz_pr[m,:m] * (1-self.hz_cm[m,:m])
+                    # failure from components only given by multiplying component hazard function and
+                    # assuming that the probability of product failure is independent from product failure
+                    self.o_tpc_cm[m,:m,c] = self.s_tpc[m-1,:m,c] * self.hz_cm[m,c] * (1-self.hz_pr[m,:m])
+                
+                # Total outflows for all cohorts <m
+                self.o_tpc[m,:m,:m] = self.o_tpc_pr[m,:m,:m] + self.o_tpc_cm[m,:m,:m] + self.o_tpc_both[m,:m,:m]
+                                
+                # subtract outflows of cohorts <m from the previous stock 
+                self.s_tpc[m,:m,:m] = self.s_tpc[m-1,:m,:m] - self.o_tpc[m,:m,:m]
+                
+                # product reuse 
+                self.reuse_tpc_pr[m,:m,:m] = self.reuse_coeff * self.o_tpc_cm[m,:m,:m]    
+                
+                # Add reused products to stock with a new product cohort
+                new_inflow_pr = self.s_pr[m] - self.s_tpc[m,:m,:m].sum()
+                if new_inflow_pr >= self.reuse_tpc_pr[m,:m,:m].sum():
+                    self.s_tpc[m,:m,m] = np.einsum('pc -> p', self.reuse_tpc_pr[m,:m,:m])
+                                        
+                ##### TO DO: fix case when there is too much reuse, also in the i_cm calculation
+                
+                
+                # Add new product cohort with new components to stock 
+                self.s_tpc[m,m,m] = self.s_pr[m] - self.s_tpc[m,:m+1,:m+1].sum()
+           
+            # Calculate new product inflow, accounting for outflows in the first year
+            if self.hz_pr[m,m] != 1: # Else, inflow is 0.
+                self.o_tpc_both[m,m,:m+1] = self.s_tpc[m,m,:m+1] * self.hz_pr[m,m] * self.hz_cm[m,:m+1]
+                # failure from products only given by multiplying product hazard function and
+                # assuming that the probability of component failure is independent from product failure
+                self.o_tpc_pr[m,m,:m+1] = self.s_tpc[m,m,:m+1] * self.hz_pr[m,m] * (1-self.hz_cm[m,:m+1])
+                # failure from components only given by multiplying component hazard function and
+                # assuming that the probability of product failure is independent from product failure
+                self.o_tpc_cm[m,m,:m+1] = self.s_tpc[m,m,:m+1] * self.hz_cm[m,:m+1] * (1-self.hz_pr[m,m])
+                # Total outflows
+                self.o_tpc[m,m,:m+1] = self.o_tpc_pr[m,m,:m+1] + self.o_tpc_cm[m,m,:m+1] + self.o_tpc_both[m,m,:m+1]
+                
+                self.i_pr[m] = self.ds_pr[m] + self.o_tpc[m,:,:].sum() -  self.reuse_tpc_pr[m,:m+1,:m+1].sum()
+
+            # Calculate new component inflow, accounting for outflows in the first year
+
+            self.o_tpc_both[m,m,m] = self.s_tpc[m,m,m] * self.hz_pr[m,m] * self.hz_cm[m,m]
+            # failure from products only given by multiplying product hazard function and
+            # assuming that the probability of component failure is independent from product failure
+            self.o_tpc_pr[m,m,m] = self.s_tpc[m,m,m] * self.hz_pr[m,m] * (1-self.hz_cm[m,m])
+            # failure from components only given by multiplying component hazard function and
+            # assuming that the probability of product failure is independent from product failure
+            self.o_tpc_cm[m,m,m] = self.s_tpc[m,m,m] * self.hz_cm[m,m] * (1-self.hz_pr[m,m])
+            # Total outflows
+            self.o_tpc[m,m,m] = self.o_tpc_pr[m,m,m] + self.o_tpc_cm[m,m,m] + self.o_tpc_both[m,m,m]
+                      
+            self.i_cm[m] = self.s_tpc[m,:m+1,m].sum()  + self.o_tpc[m,:m+1,m].sum() 
+
+                
+        self.o_pr = np.einsum('tpc->t', self.o_tpc - self.reuse_tpc_pr)
+        self.o_cm = np.einsum('tpc->t', self.o_tpc)
+        return self.s_tpc, self.i_pr, self.i_cm, self.o_pr, self.o_cm
+
+
 
     def case_5(self):
         '''
@@ -1262,7 +1388,7 @@ class ProductComponentModel(object):
         else:
             raise Exception('No stock specified')
             return None, None, None, None, None, None    
-    
+
     def case_6(self):
         '''
         Products and components have independent lifetimes. Potential failure of the componentscomponents is not included in the lifetime of the product. 
