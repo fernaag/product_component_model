@@ -557,6 +557,7 @@ class ProductComponentModel(object):
             return None, None, None, None, None, None
                 
     def case_2(self):
+        #TODO: This needs to be revised for oc_cm
         '''
         Products have a lifetime that includes all types of failures, component EoL being one of them. Still, it is assumed that some components will be replaced at a given rate r. 
         More than one component is used in the lifetime of the product. Outflow component >= outflow product
@@ -571,7 +572,6 @@ class ProductComponentModel(object):
                     self.sc_pr = np.zeros((len(self.t), len(self.t)))
                     self.oc_pr = np.zeros((len(self.t), len(self.t)))
                     self.i_pr = np.zeros(len(self.t))
-
                     self.i_cm = np.zeros(len(self.t))
                     # construct the sf of a product of cohort tc remaining in the stock in year t
                     self.compute_sf_pr() # Computes sf if not present already.
@@ -584,7 +584,6 @@ class ProductComponentModel(object):
                         # 1) Compute outflow from previous age-cohorts up to m-1
                         self.oc_pr[m, 0:m] = self.sc_pr[m-1, 0:m] - self.sc_pr[m, 0:m] # outflow table is filled row-wise, for each year m.
                         # 2) Determine inflow from mass balance:
-                        
                         if self.sf_pr[m,m] != 0: # Else, inflow is 0.
                             self.i_pr[m] = (self.s_pr[m] - self.sc_pr[m, :].sum()) / self.sf_pr[m,m] # allow for outflow during first year by rescaling with 1/sf[m,m]
                         # 3) Add new inflow to stock and determine future decay of new age-cohort
@@ -594,7 +593,7 @@ class ProductComponentModel(object):
                     self.s_cm = self.s_pr
                     self.i_cm = self.i_pr * (1 + self.r)
                     self.o_cm = self.i_cm - self.compute_stock_change_cm()
-
+                    
                     # Calculating total values
                     self.o_pr = self.oc_pr.sum(axis=1)
 
@@ -835,6 +834,10 @@ class ProductComponentModel(object):
                 
         self.o_pr = np.einsum('tpc->t', self.o_tpc)
         self.o_cm = np.einsum('tpc->t', self.o_tpc)
+        self.oc_pr = np.einsum('tpc->tp', self.o_tpc)
+        self.oc_cm = np.einsum('tpc->tc', self.o_tpc)
+        self.sc_pr  = np.einsum('tpc->tp', self.s_tpc)
+        self.sc_cm  = np.einsum('tpc->tc', self.s_tpc)
         return self.s_tpc, self.i_pr, self.i_cm, self.o_pr, self.o_cm
 
     
@@ -953,9 +956,13 @@ class ProductComponentModel(object):
                       
             # self.i_cm[m] = self.ds_pr[m] + self.o_tpc[m,:,:].sum() -  self.reuse_tpc_cm[m,:m+1,:m+1].sum()
             self.i_cm[m] = self.s_tpc[m,m,m] + self.o_tpc[m,m,m]
-                
-        self.o_pr = np.einsum('tpc->t', self.o_tpc)
-        self.o_cm = np.einsum('tpc->t', self.o_tpc - self.reuse_tpc_cm)
+        # Calculating aggregated values      
+        self.o_pr   = np.einsum('tpc->t', self.o_tpc)
+        self.o_cm   = np.einsum('tpc->t', self.o_tpc - self.reuse_tpc_cm)
+        self.oc_pr  = np.einsum('tpc->tp', self.o_tpc)
+        self.oc_cm  = np.einsum('tpc->tc', self.o_tpc - self.reuse_tpc_cm)
+        self.sc_pr  = np.einsum('tpc->tp', self.s_tpc)
+        self.sc_cm  = np.einsum('tpc->tc', self.s_tpc)
         return self.s_tpc, self.i_pr, self.i_cm, self.o_pr, self.o_cm
     
     def case_4_new_max_age(self,max_age):
@@ -1077,6 +1084,10 @@ class ProductComponentModel(object):
             
         self.o_pr = np.einsum('tpc->t', self.o_tpc)
         self.o_cm = np.einsum('tpc->t', self.o_tpc - self.reuse_tpc_cm)
+        self.oc_pr = np.einsum('tpc->tp', self.o_tpc)
+        self.oc_cm = np.einsum('tpc->tc', self.o_tpc)
+        self.sc_pr  = np.einsum('tpc->tp', self.s_tpc)
+        self.sc_cm  = np.einsum('tpc->tc', self.s_tpc)
         return self.s_tpc, self.i_pr, self.i_cm, self.o_pr, self.o_cm
            
         
@@ -1355,6 +1366,10 @@ class ProductComponentModel(object):
                 
         self.o_pr = np.einsum('tpc->t', self.o_tpc - self.replacement_tpc_cm)
         self.o_cm = np.einsum('tpc->t', self.o_tpc)
+        self.oc_pr = np.einsum('tpc->tp', self.o_tpc)
+        self.oc_cm = np.einsum('tpc->tc', self.o_tpc)
+        self.sc_pr  = np.einsum('tpc->tp', self.s_tpc)
+        self.sc_cm  = np.einsum('tpc->tc', self.s_tpc)
         return self.s_tpc, self.i_pr, self.i_cm, self.o_pr, self.o_cm
 
 
