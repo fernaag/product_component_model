@@ -609,7 +609,7 @@ class ProductComponentModel(object):
             raise Exception('No stock specified')
             return None, None, None, None, None, None
 
-    def case_3(self):
+    def case_3_old(self):
         '''
         Products and components have independent lifetimes. Potential failure of the component is not included in the lifetime of the product. Components can neither be replaced nor reused, meaning that if 
         either the product or the component fail, they are both scrapped.
@@ -700,7 +700,7 @@ class ProductComponentModel(object):
             raise Exception('No stock specified')
             return None, None, None, None, None, None
 
-    def case_3_new(self):
+    def case_3(self):
         '''
         Products and components have independent lifetimes. Potential failure of the component is not included in the lifetime of the product. Components can neither be replaced nor reused, meaning that if 
         either the product or the component fail, they are both scrapped.
@@ -746,56 +746,7 @@ class ProductComponentModel(object):
         self.compute_sf_cm() # Computes sf of component if not present already.
         self.compute_hz_pr() # product hazard function
         self.compute_hz_cm() # component hazard function
- 
-        # # Initializing values
-        # self.s_tpc[0,0,0] = self.s_pr[0]
-        # if self.hz_pr[0,0] != 1: # Else, inflow is 0.
-        #     self.o_tpc_both[0,0,0] = self.s_tpc[0,0,0] * self.hz_pr[0,0] * self.hz_cm[0,0]
-        #     # failure from products only given by multiplying product hazard function and
-        #     # assuming that the probability of component failure is independent from product failure
-        #     self.o_tpc_pr[0,0,0] = self.s_tpc[0,0,0] * self.hz_pr[0,0] * (1-self.hz_cm[0,0])
-        #     # failure from components only given by multiplying component hazard function and
-        #     # assuming that the probability of product failure is independent from product failure
-        #     self.o_tpc_cm[0,0,0] = self.s_tpc[0,0,0] * self.hz_cm[0,0] * (1-self.hz_pr[0,0])
-        #     # Total outflows
-        #     self.o_tpc[0,0,0] = self.o_tpc_pr[0,0,0] + self.o_tpc_cm[0,0,0] + self.o_tpc_both[0,0,0]
-        
-        #     self.i_pr[0] = self.ds_pr[0] + self.o_tpc[0,0,0]
-                              
-        # for m in range(1,len(self.t)):  # for all years m
-        #     # simultaneaous failure given by multiplying both hazard functions for all cohorts <m
-        #     self.o_tpc_both[m,:m,:m] = self.s_tpc[m-1,:m,:m] * self.hz_pr[m,:m] * self.hz_cm[m,:m]
-        #     # failure from products only given by multiplying product hazard function and
-        #     # assuming that the probability of component failure is independent from product failure
-        #     self.o_tpc_pr[m,:m,:m] = self.s_tpc[m-1,:m,:m] * self.hz_pr[m,:m] * (1-self.hz_cm[m,:m])
-        #     # failure from components only given by multiplying component hazard function and
-        #     # assuming that the probability of product failure is independent from product failure
-        #     self.o_tpc_cm[m,:m,:m] = self.s_tpc[m-1,:m,:m] * self.hz_cm[m,:m] * (1-self.hz_pr[m,:m])
-
-        #     # Total outflows for all cohorts <m
-        #     self.o_tpc[m,:m,:m] = self.o_tpc_pr[m,:m,:m] + self.o_tpc_cm[m,:m,:m] + self.o_tpc_both[m,:m,:m]
-            
-        #     # subtract outflows of cohorts <m from the previous stock 
-        #     self.s_tpc[m,:m,:m] = self.s_tpc[m-1,:m,:m] - self.o_tpc[m,:m,:m]
-        #     # Add new cohort to stock
-        #     self.s_tpc[m,m,m] = self.s_pr[m] - self.s_tpc[m,:m,:m].sum()
-        #     print(m,self.s_tpc[m,m,m])
-            
-        #     # Calculate new inflow, accounting for outflows in the first year
-        #     if self.hz_pr[m,m] != 1: # Else, inflow is 0.
-        #         self.o_tpc_both[m,m,m] = self.s_tpc[m,m,m] * self.hz_pr[m,m] * self.hz_cm[m,m]
-        #         # failure from products only given by multiplying product hazard function and
-        #         # assuming that the probability of component failure is independent from product failure
-        #         self.o_tpc_pr[m,m,m] = self.s_tpc[m,m,m] * self.hz_pr[m,m] * (1-self.hz_cm[m,m])
-        #         # failure from components only given by multiplying component hazard function and
-        #         # assuming that the probability of product failure is independent from product failure
-        #         self.o_tpc_cm[m,m,m] = self.s_tpc[m,m,m] * self.hz_cm[m,m] * (1-self.hz_pr[m,m])
-        #         # Total outflows
-        #         self.o_tpc[m,m,m] = self.o_tpc_pr[m,m,m] + self.o_tpc_cm[m,m,m] + self.o_tpc_both[m,m,m]
-        
-        #         self.i_pr[m] = self.ds_pr[m] + self.o_tpc[m,:,:].sum()                   
-        #         self.i_cm[m] = self.i_pr[m] #one new component per new product       
-        
+       
         # Initializing values
         self.s_tpc[0,0,0] = self.s_pr[0]
                             
@@ -839,7 +790,7 @@ class ProductComponentModel(object):
 
     
         
-    def case_4_new(self):
+    def case_4(self):
         '''
         Products and components have independent lifetimes. Potential failure of the component is not included in the lifetime of the product. 
         Components cannot be replaced, but they can be reused. If the component fails, the product is scrapped. 
@@ -958,7 +909,7 @@ class ProductComponentModel(object):
         self.o_cm = np.einsum('tpc->t', self.o_tpc - self.reuse_tpc_cm)
         return self.s_tpc, self.i_pr, self.i_cm, self.o_pr, self.o_cm
     
-    def case_4_new_max_age(self,max_age):
+    def case_4_max_age(self,max_age):
         '''
         Products and components have independent lifetimes. Potential failure of the component is not included in the lifetime of the product. 
         Components cannot be replaced, but they can be reused. If the component fails, the product is scrapped. 
@@ -1080,7 +1031,7 @@ class ProductComponentModel(object):
         return self.s_tpc, self.i_pr, self.i_cm, self.o_pr, self.o_cm
            
         
-    def case_5_new(self):
+    def case_5(self):
         '''
         Products and components have independent lifetimes. Potential failure of the component is not included in the lifetime of the product. 
         Components cannot be replaced, but they can be reused. If the component fails, the product is scrapped. 
