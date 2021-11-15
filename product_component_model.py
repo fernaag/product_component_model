@@ -557,7 +557,6 @@ class ProductComponentModel(object):
             return None, None, None, None, None, None
                 
     def case_2(self):
-        #TODO: This needs to be revised for oc_cm
         '''
         Products have a lifetime that includes all types of failures, component EoL being one of them. Still, it is assumed that some components will be replaced at a given rate r. 
         More than one component is used in the lifetime of the product. Outflow component >= outflow product
@@ -572,6 +571,7 @@ class ProductComponentModel(object):
                     self.sc_pr = np.zeros((len(self.t), len(self.t)))
                     self.oc_pr = np.zeros((len(self.t), len(self.t)))
                     self.i_pr = np.zeros(len(self.t))
+
                     self.i_cm = np.zeros(len(self.t))
                     # construct the sf of a product of cohort tc remaining in the stock in year t
                     self.compute_sf_pr() # Computes sf if not present already.
@@ -584,6 +584,7 @@ class ProductComponentModel(object):
                         # 1) Compute outflow from previous age-cohorts up to m-1
                         self.oc_pr[m, 0:m] = self.sc_pr[m-1, 0:m] - self.sc_pr[m, 0:m] # outflow table is filled row-wise, for each year m.
                         # 2) Determine inflow from mass balance:
+                        
                         if self.sf_pr[m,m] != 0: # Else, inflow is 0.
                             self.i_pr[m] = (self.s_pr[m] - self.sc_pr[m, :].sum()) / self.sf_pr[m,m] # allow for outflow during first year by rescaling with 1/sf[m,m]
                         # 3) Add new inflow to stock and determine future decay of new age-cohort
@@ -593,7 +594,7 @@ class ProductComponentModel(object):
                     self.s_cm = self.s_pr
                     self.i_cm = self.i_pr * (1 + self.r)
                     self.o_cm = self.i_cm - self.compute_stock_change_cm()
-                    
+
                     # Calculating total values
                     self.o_pr = self.oc_pr.sum(axis=1)
 
@@ -834,10 +835,6 @@ class ProductComponentModel(object):
                 
         self.o_pr = np.einsum('tpc->t', self.o_tpc)
         self.o_cm = np.einsum('tpc->t', self.o_tpc)
-        self.oc_pr = np.einsum('tpc->tp', self.o_tpc)
-        self.oc_cm = np.einsum('tpc->tc', self.o_tpc)
-        self.sc_pr  = np.einsum('tpc->tp', self.s_tpc)
-        self.sc_cm  = np.einsum('tpc->tc', self.s_tpc)
         return self.s_tpc, self.i_pr, self.i_cm, self.o_pr, self.o_cm
 
     
@@ -956,13 +953,9 @@ class ProductComponentModel(object):
                       
             # self.i_cm[m] = self.ds_pr[m] + self.o_tpc[m,:,:].sum() -  self.reuse_tpc_cm[m,:m+1,:m+1].sum()
             self.i_cm[m] = self.s_tpc[m,m,m] + self.o_tpc[m,m,m]
-        # Calculating aggregated values      
-        self.o_pr   = np.einsum('tpc->t', self.o_tpc)
-        self.o_cm   = np.einsum('tpc->t', self.o_tpc - self.reuse_tpc_cm)
-        self.oc_pr  = np.einsum('tpc->tp', self.o_tpc)
-        self.oc_cm  = np.einsum('tpc->tc', self.o_tpc - self.reuse_tpc_cm)
-        self.sc_pr  = np.einsum('tpc->tp', self.s_tpc)
-        self.sc_cm  = np.einsum('tpc->tc', self.s_tpc)
+                
+        self.o_pr = np.einsum('tpc->t', self.o_tpc)
+        self.o_cm = np.einsum('tpc->t', self.o_tpc - self.reuse_tpc_cm)
         return self.s_tpc, self.i_pr, self.i_cm, self.o_pr, self.o_cm
     
     def case_4_new_max_age(self,max_age):
@@ -1084,10 +1077,6 @@ class ProductComponentModel(object):
             
         self.o_pr = np.einsum('tpc->t', self.o_tpc)
         self.o_cm = np.einsum('tpc->t', self.o_tpc - self.reuse_tpc_cm)
-        self.oc_pr = np.einsum('tpc->tp', self.o_tpc)
-        self.oc_cm = np.einsum('tpc->tc', self.o_tpc)
-        self.sc_pr  = np.einsum('tpc->tp', self.s_tpc)
-        self.sc_cm  = np.einsum('tpc->tc', self.s_tpc)
         return self.s_tpc, self.i_pr, self.i_cm, self.o_pr, self.o_cm
            
         
@@ -1274,7 +1263,6 @@ class ProductComponentModel(object):
  
         # Initializing values
         self.s_tpc[0,0,0] = self.s_pr[0]
-        new_inflow_pr = 0
 
         for m in range(len(self.t)):  # for all years m
             if m>0: # the initial stock is assumed to be 0
@@ -1301,40 +1289,52 @@ class ProductComponentModel(object):
                 # need for component replacement (in old products)
                 self.replacement_tpc_cm[m,:m,:m] = self.replacement_coeff * self.o_tpc_cm[m,:m,:m]    
                 
-                # calculate the size of the product demand
+                # calculate the size of the product demand for year m
                 demand_pr = self.s_pr[m] - self.s_tpc[m,:m,:m].sum()
                 
-                reuse_replace_pc = np.zeros((m, m)) 
-                
-                if demand_pr >= self.replacement_tpc_cm.sum(): 
-                # components are reused first in old products:
-                    c=oldest_cohort
-                    for p in range(m):
-                        replacement_need = self.replacement_tpc_cm[m,p,:m].sum()
-                        
-                        while c < m:
-                            reuse = self.reuse_tpc_cm[m,:m,c].sum()
-                            self.reuse_replace_pc[p,c] = min(
-                                replacement_need,
-                                reuse)
-                            replacement_need -= reuse_replace_pc[p,c]
-                            reuse -= reuse_replace_pc[p,c]
-                            if reuse == 0:
-                                c += 1
-                
-                
-                
-                # Add reused products to stock with a new product cohort
-                new_inflow_pr = self.s_pr[m] - self.s_tpc[m,:m,:m].sum()
-                if new_inflow_pr >= self.replacement_tpc_cm[m,:m,:m].sum():
-                    self.s_tpc[m,:m,m] = np.einsum('pc -> p', self.replacement_tpc_cm[m,:m,:m])
-                                        
-                ##### TO DO: fix case when there is too much reuse, also in the i_cm calculation
-                
-                
-                # Add new product cohort with new components to stock 
-                self.s_tpc[m,m,m] = self.s_pr[m] - self.s_tpc[m,:m+1,:m+1].sum()
-           
+                # if the demand is smaller than the potential for component replacement,
+                # the oldest products will not receive a new component
+                products_for_replacements =  np.einsum('pc -> p', 
+                                                       self.replacement_tpc_cm[m,:m,:m])
+                p = 0
+                while products_for_replacements.sum() > demand_pr and p < m:
+                    if products_for_replacements[p+1:].sum() > demand_pr:
+                        products_for_replacements[p] = 0
+                    else:
+                        products_for_replacements[p] = demand_pr - products_for_replacements[p:].sum()
+                    p += 1
+
+
+                # if the demand is smaller than the potential for component reuse,
+                # the oldest components will not be reused
+                components_for_reuse =  np.einsum('pc -> c', 
+                                                 self.reuse_tpc_cm[m,:m,oldest_cohort:m])
+                c = oldest_cohort
+                while components_for_reuse.sum() > demand_pr and c < m:
+                    if components_for_reuse[c+1:].sum() > demand_pr:
+                        components_for_reuse[c] = 0
+                    else:
+                        components_for_reuse[c] = demand_pr - components_for_reuse[c:].sum()
+                    c += 1                       
+                            
+                # the oldest components are reused in the oldest products
+                # in need for a component replacement
+                while p < m and c < m: 
+                        self.s_tpc[m,p,c] = min(
+                                products_for_replacements[p],
+                                components_for_reuse[c])
+                        products_for_replacements[p] -= self.s_tpc[m,p,c]
+                        components_for_reuse[c] -= self.s_tpc[m,p,c]
+                        if components_for_reuse[c]==0:
+                            c+=1
+                        if components_for_reuse[p]==0:
+                            p+=1
+                            
+                # Add  remaining products to stock with a new component cohort
+                self.s_tpc[m,p:,m] = products_for_replacements[p:]
+                # Add  remaining components to stock with a new product cohort
+                self.s_tpc[m,m,c:] = components_for_reuse[c:]
+     
             # Calculate new product inflow, accounting for outflows in the first year
             if self.hz_pr[m,m] != 1: # Else, inflow is 0.
                 self.o_tpc_both[m,m,:m+1] = self.s_tpc[m,m,:m+1] * self.hz_pr[m,m] * self.hz_cm[m,:m+1]
@@ -1347,7 +1347,7 @@ class ProductComponentModel(object):
                 # Total outflows
                 self.o_tpc[m,m,:m+1] = self.o_tpc_pr[m,m,:m+1] + self.o_tpc_cm[m,m,:m+1] + self.o_tpc_both[m,m,:m+1]
                 
-                self.i_pr[m] = self.ds_pr[m] + self.o_tpc[m,:,:].sum() -  self.replacement_tpc_cm[m,:m+1,:m+1].sum()
+                self.i_pr[m] = self.s_tpc[m,m,:m+1].sum()  + self.o_tpc[m,m,:m+1].sum()
 
             # Calculate new component inflow, accounting for outflows in the first year
 
@@ -1366,10 +1366,6 @@ class ProductComponentModel(object):
                 
         self.o_pr = np.einsum('tpc->t', self.o_tpc - self.replacement_tpc_cm)
         self.o_cm = np.einsum('tpc->t', self.o_tpc)
-        self.oc_pr = np.einsum('tpc->tp', self.o_tpc)
-        self.oc_cm = np.einsum('tpc->tc', self.o_tpc)
-        self.sc_pr  = np.einsum('tpc->tp', self.s_tpc)
-        self.sc_cm  = np.einsum('tpc->tc', self.s_tpc)
         return self.s_tpc, self.i_pr, self.i_cm, self.o_pr, self.o_cm
 
 
