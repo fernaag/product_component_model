@@ -1361,12 +1361,12 @@ class ProductComponentModel(object):
                       
             self.i_cm[m] = self.s_tpc[m,:m+1,m].sum()  + self.o_tpc[m,:m+1,m].sum() 
             
-
+            # to get outflows by cohorts, we need to consider reused products and components
             self.oc_pr[m,:m] = np.einsum('pc->p', 
                                         self.o_tpc[m,:m,:m] - self.replace_reuse_tpc[m,:m,:m])
             self.oc_pr[m,m] = (self.o_tpc[m,m,:m+1] - self.replace_reuse_tpc[m,m,:m+1]).sum()
             
-            self.oc_cm[m,:m] = np.einsum('pc->p', 
+            self.oc_cm[m,:m] = np.einsum('pc->c', 
                                         self.o_tpc[m,:m,:m] - self.replace_reuse_tpc[m,:m,:m])
             self.oc_cm[m,m] = (self.o_tpc[m,:m+1,m] - self.replace_reuse_tpc[m,:m+1,m]).sum()
 
