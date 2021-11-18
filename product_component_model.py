@@ -1227,6 +1227,8 @@ class ProductComponentModel(object):
         
         self.o_cm = np.zeros(len(self.t)) # component outflows
         self.o_pr = np.zeros(len(self.t)) # product outflows
+        self.oc_cm = np.zeros((len(self.t), len(self.t))) # component outflows by cohort
+        self.oc_pr = np.zeros((len(self.t), len(self.t))) # product outflows by cohort
         
         # component reuse (in old and new products)
         self.reuse_tpc_cm = np.zeros((len(self.t), len(self.t), len(self.t))) 
@@ -1312,13 +1314,24 @@ class ProductComponentModel(object):
                             c+=1
                         if products_for_replacements[p]==0:
                             p+=1
-                # add replaced/reused components to stock:
-                self.s_tpc[m,:m,:m] += self.replace_reuse_tpc[m,:m,:m]
+                # # add replaced/reused components to stock:
+                # self.s_tpc[m,:m,:m] += self.replace_reuse_tpc[m,:m,:m]
+                            
+                # # Add  remaining products to stock with a new component cohort
+                # self.s_tpc[m,p:m,m] = products_for_replacements[p:]
+                # # Add  remaining components to stock with a new product cohort
+                # self.s_tpc[m,m,c:m] = components_for_reuse[c:]
+                # # Add new product cohort with new components to stock 
+                # self.s_tpc[m,m,m] = self.s_pr[m] - self.s_tpc[m,:m+1,:m+1].sum()
+                
+
                             
                 # Add  remaining products to stock with a new component cohort
-                self.s_tpc[m,p:m,m] = products_for_replacements[p:]
+                self.replace_reuse_tpc[m,p:m,m] = products_for_replacements[p:]
                 # Add  remaining components to stock with a new product cohort
-                self.s_tpc[m,m,c:m] = components_for_reuse[c:]
+                self.replace_reuse_tpc[m,m,c:m] = components_for_reuse[c:]
+                # add replaced/reused components to stock:
+                self.s_tpc[m,:m+1,:m+1] += self.replace_reuse_tpc[m,:m+1,:m+1]            
                 # Add new product cohort with new components to stock 
                 self.s_tpc[m,m,m] = self.s_pr[m] - self.s_tpc[m,:m+1,:m+1].sum()
      
@@ -1347,6 +1360,15 @@ class ProductComponentModel(object):
             self.o_tpc[m,:m+1,m] = self.o_tpc_pr[m,:m+1,m] + self.o_tpc_cm[m,:m+1,m] + self.o_tpc_both[m,:m+1,m]
                       
             self.i_cm[m] = self.s_tpc[m,:m+1,m].sum()  + self.o_tpc[m,:m+1,m].sum() 
+            
+
+            self.oc_pr[m,:m] = np.einsum('pc->p', 
+                                        self.o_tpc[m,:m,:m] - self.replace_reuse_tpc[m,:m,:m])
+            self.oc_pr[m,m] = (self.o_tpc[m,m,:m+1] - self.replace_reuse_tpc[m,m,:m+1]).sum()
+            
+            self.oc_cm[m,:m] = np.einsum('pc->p', 
+                                        self.o_tpc[m,:m,:m] - self.replace_reuse_tpc[m,:m,:m])
+            self.oc_cm[m,m] = (self.o_tpc[m,:m+1,m] - self.replace_reuse_tpc[m,:m+1,m]).sum()
 
         # Calculating aggregated values                    
         self.o_pr =  self.i_pr - self.ds_pr 
