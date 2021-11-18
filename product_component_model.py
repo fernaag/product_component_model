@@ -1286,8 +1286,9 @@ class ProductComponentModel(object):
                     if products_for_replacements[p+1:].sum() > demand_pr:
                         products_for_replacements[p] = 0
                     else:
-                        products_for_replacements[p] = demand_pr - products_for_replacements[p:].sum()
+                        products_for_replacements[p] = demand_pr - products_for_replacements[p+1:].sum()
                     p += 1
+                
 
 
                 # if the demand is smaller than the potential for component reuse,
@@ -1299,9 +1300,11 @@ class ProductComponentModel(object):
                     if components_for_reuse[c+1:].sum() > demand_pr:
                         components_for_reuse[c] = 0
                     else:
-                        components_for_reuse[c] = demand_pr - components_for_reuse[c:].sum()
-                    c += 1                       
-                            
+                        components_for_reuse[c] = demand_pr - components_for_reuse[c+1:].sum()
+                    c += 1       
+
+                
+                                
                 # the oldest components are reused in the oldest products
                 # in need for a component replacement
                 while p < m and c < m: 
