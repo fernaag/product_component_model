@@ -325,13 +325,9 @@ class ProductComponentModel(object):
         if self.sf_pr is None:
             print("survival function not defined")
         else:
-            for n in range(0, len(self.t)): 
-                self.hz_pr [n,n] = 1-self.sf_pr[n,n] #sf is equal to 1 at the beginning of the first year
-                for m in range(n, len(self.t)-1): 
-                    if self.sf_pr[m,n] == 0:
-                        self.hz_pr [m+1,n] = 1
-                    else:
-                        self.hz_pr [m+1,n] = (self.sf_pr[m,n] - self.sf_pr[m+1,n]) / self.sf_pr[m,n] 
+            for m in range(0, len(self.t)-1): 
+                self.hz_pr [m,m] = 1-self.sf_pr[m,m] #sf is equal to 1 at the beginning of the first year
+                self.hz_pr [m+1:,m] = (self.sf_pr[m:-1,m] - self.sf_pr[m+1::,m]) / self.sf_pr[m:-1,m]
         return self.hz_pr
 
     def compute_hz_cm(self): # hazard functions
@@ -1092,7 +1088,7 @@ class ProductComponentModel(object):
                     self.o_tpc_both[m,:m,c] = self.s_tpc[m-1,:m,c] * self.hz_pr[m,:m] * self.hz_cm[m,c]
                     # failure from products only given by multiplying product hazard function and
                     # assuming that the probability of component failure is independent from product failure
-                    self.o_tpc_pr[m,:m,c] = self.s_tpc[m-1,:m,c] * self.hz_pr[m,:m] * (1-self.hz_cm[m,:m])
+                    self.o_tpc_pr[m,:m,c] = self.s_tpc[m-1,:m,c] * self.hz_pr[m,:m] * (1-self.hz_cm[m,c])
                     # failure from components only given by multiplying component hazard function and
                     # assuming that the probability of product failure is independent from product failure
                     self.o_tpc_cm[m,:m,c] = self.s_tpc[m-1,:m,c] * self.hz_cm[m,c] * (1-self.hz_pr[m,:m])
@@ -1123,7 +1119,7 @@ class ProductComponentModel(object):
                 self.o_tpc_both[m,m,c] = self.s_tpc[m-1,m,c] * self.hz_pr[m,m] * self.hz_cm[m,c]
                 # failure from products only given by multiplying product hazard function and
                 # assuming that the probability of component failure is independent from product failure
-                self.o_tpc_pr[m,m,c] = self.s_tpc[m-1,m,c] * self.hz_pr[m,m] * (1-self.hz_cm[m,m])
+                self.o_tpc_pr[m,m,c] = self.s_tpc[m-1,m,c] * self.hz_pr[m,m] * (1-self.hz_cm[m,c])
                 # failure from components only given by multiplying component hazard function and
                 # assuming that the probability of product failure is independent from product failure
                 self.o_tpc_cm[m,m,c] = self.s_tpc[m-1,m,c] * self.hz_cm[m,c] * (1-self.hz_pr[m,m])
@@ -1223,7 +1219,7 @@ class ProductComponentModel(object):
                     self.o_tpc_both[m,:m,c] = self.s_tpc[m-1,:m,c] * self.hz_pr[m,:m] * self.hz_cm[m,c]
                     # failure from products only given by multiplying product hazard function and
                     # assuming that the probability of component failure is independent from product failure
-                    self.o_tpc_pr[m,:m,c] = self.s_tpc[m-1,:m,c] * self.hz_pr[m,:m] * (1-self.hz_cm[m,:m])
+                    self.o_tpc_pr[m,:m,c] = self.s_tpc[m-1,:m,c] * self.hz_pr[m,:m] * (1-self.hz_cm[m,c])
                     # failure from components only given by multiplying component hazard function and
                     # assuming that the probability of product failure is independent from product failure
                     self.o_tpc_cm[m,:m,c] = self.s_tpc[m-1,:m,c] * self.hz_cm[m,c] * (1-self.hz_pr[m,:m])
@@ -1302,7 +1298,7 @@ class ProductComponentModel(object):
                 self.o_tpc_both[m,m,c] = self.s_tpc[m-1,m,c] * self.hz_pr[m,m] * self.hz_cm[m,c]
                 # failure from products only given by multiplying product hazard function and
                 # assuming that the probability of component failure is independent from product failure
-                self.o_tpc_pr[m,m,c] = self.s_tpc[m-1,m,c] * self.hz_pr[m,m] * (1-self.hz_cm[m,m])
+                self.o_tpc_pr[m,m,c] = self.s_tpc[m-1,m,c] * self.hz_pr[m,m] * (1-self.hz_cm[m,c])
                 # failure from components only given by multiplying component hazard function and
                 # assuming that the probability of product failure is independent from product failure
                 self.o_tpc_cm[m,m,c] = self.s_tpc[m-1,m,c] * self.hz_cm[m,c] * (1-self.hz_pr[m,m])
