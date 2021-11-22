@@ -567,7 +567,7 @@ class ProductComponentModel(object):
         '''
         if self.s_pr is not None:
             if self.lt_pr is not None:
-                if self.r is not None: 
+                if self.replacement_coeff is not None: 
                     self.sc_pr = np.zeros((len(self.t), len(self.t)))
                     self.oc_pr = np.zeros((len(self.t), len(self.t)))
                     self.i_pr = np.zeros(len(self.t))
@@ -592,7 +592,7 @@ class ProductComponentModel(object):
                         self.oc_pr[m, m]   = self.i_pr[m] * (1 - self.sf_pr[m, m])
                     # 4) Determining the values for the component
                     self.s_cm = self.s_pr
-                    self.i_cm = self.i_pr * (1 + self.r)
+                    self.i_cm = self.i_pr * (1 + self.replacement_coeff)
                     self.o_cm = self.i_cm - self.compute_stock_change_cm()
 
                     # Calculating total values
@@ -1332,7 +1332,8 @@ class ProductComponentModel(object):
         # Calculating aggregated values                    
         self.o_pr =  self.i_pr - self.ds_pr 
         self.o_cm = self.i_cm - self.ds_pr 
-        
+        self.sc_pr  = np.einsum('tpc->tp', self.s_tpc)
+        self.sc_cm  = np.einsum('tpc->tc', self.s_tpc)
 
         # self.o_pr = np.einsum('tpc->t', self.o_tpc - self.replacement_tpc_cm)
         # self.o_cm = np.einsum('tpc->t', self.o_tpc)
