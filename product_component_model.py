@@ -551,7 +551,76 @@ class ProductComponentModel(object):
         else:
             raise Exception('No stock specified')
             return None, None, None, None, None, None
+          
+          
+    def case_1_hz(self):
+        '''
+         Products have a lifetime that includes all types of failures, component EoL being one of them. No component replacement. 1 product = one component, Outflow component = outflow product 
+
+         Since this case includes all possible failures, the choice of lifetime should not be limted to the technical lifetime of the product itself but should also consider how this might be 
+         affected by failures in the component and potential damages. Therefore, the probability that a failure occurs is greater than the techical lifetime of the product itself and should lead
+         to a shorter choice of lifetime. 
+        
+         In this version, all dynamics are computed using the hazard function instead of the survival curve. 
+
+         '''
+        if self.s_pr is None:
+            raise Exception('No stock specified')
+            return None, None, None, None, None
+        if self.lt_pr is  None: 
+            raise Exception('No product lifetime specified')
+            return None, None, None, None, None
+
+        # stock composition per year, product cohort and component cohort
+        self.s_tpc = np.zeros((len(self.t), len(self.t), len(self.t))) #
+        # outflows caused by simultaneous (same year) product and component failure:
+        self.o_tpc_both = np.zeros((len(self.t), len(self.t), len(self.t))) 
+        # outflows caused by product failure only:
+        self.o_tpc_pr = np.zeros((len(self.t), len(self.t), len(self.t))) 
+        # outflows caused by component failure only:
+        self.o_tpc_cm = np.zeros((len(self.t), len(self.t), len(self.t))) 
+        # total outflows:
+        self.o_tpc = np.zeros((len(self.t), len(self.t), len(self.t)))
+        self.i_pr = np.zeros(len(self.t)) # product inflows
+        self.i_cm = np.zeros(len(self.t)) # component inflows
+        # stock change of product:
+        self.ds_pr = np.concatenate(([self.s_pr[0]], np.diff(self.s_pr)))
+        
+        self.o_cm = np.zeros(len(self.t)) # component outflows
+        self.o_pr = np.zeros(len(self.t)) # product outflows
+        
+        # construct the hazard functions of product and components
+        self.compute_sf_pr() # Computes sf if not present already.
+        self.compute_hz_pr() # product hazard function
+       
+        # Initializing values
+        self.s_tpc[0,0,0] = self.s_pr[0]
+                            
+        for m in range(len(self.t)):  # for all years m
+            if m>0: # the initial stock is assumed to be 0
+                # Probability of any failure is calculated using product hazard function 
+                self.o_tpc[m,:m,:m] = self.s_tpc[m-1,:m,:m] * self.hz_pr[m,:m] 
                 
+                # subtract outflows of cohorts <m from the previous stock 
+                self.s_tpc[m,:m,:m] = self.s_tpc[m-1,:m,:m] - self.o_tpc[m,:m,:m]
+                # Add new cohort to stock
+                self.s_tpc[m,m,m] = self.s_pr[m] - self.s_tpc[m,:m,:m].sum()
+           
+            # Calculate new inflow, accounting for outflows in the first year
+            
+            self.o_tpc[m,m,m] = self.s_tpc[m,m,m] * self.hz_pr[m,m] 
+    
+            self.i_pr[m] = self.ds_pr[m] + self.o_tpc[m,:,:].sum()                   
+            self.i_cm[m] = self.i_pr[m] #one new component per new product       
+                
+        self.o_pr = np.einsum('tpc->t', self.o_tpc)
+        self.o_cm = np.einsum('tpc->t', self.o_tpc)
+        self.oc_pr = np.einsum('tpc->tp', self.o_tpc)
+        self.oc_cm = np.einsum('tpc->tc', self.o_tpc)
+        self.sc_pr  = np.einsum('tpc->tp', self.s_tpc)
+        self.sc_cm  = np.einsum('tpc->tc', self.s_tpc)
+        return self.s_tpc, self.i_pr, self.i_cm, self.o_pr, self.o_cm
+          
     def case_2(self):
         '''
         Products have a lifetime that includes all types of failures, component EoL being one of them. Still, it is assumed that some components will be replaced at a given rate r. 
