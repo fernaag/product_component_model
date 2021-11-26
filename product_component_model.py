@@ -56,9 +56,7 @@ class ProductComponentModel(object):
     lt_pr : lifetime distribution of product: dictionary
     lt_cm : lifetime distribution of component: dictionary
 
-    r: Replacement rate of component
-    tau_cm: This is the minimum amount of time that a component should remain useful for if it will be eligible for reuse
-    tau_pr: This is the minimum amount of time that a product should be expected to remain functional for it to be eligible to get a spare part
+    replacement_coeff: Replacement rate of component
     reuse_coeff: share of components from failed products that can be reused
 
     d: Death rate 
@@ -69,6 +67,9 @@ class ProductComponentModel(object):
     
     sf_pr: survival function for different age-cohorts of product, year x age-cohort table
     sf_cm: survival function for different age-cohorts of component, year x age-cohort table
+    
+    hz_pr: hazard function for different age-cohorts of product, year x age-cohort table
+    hz_cm: hazard function for different age-cohorts of component, year x age-cohort table
 
 
     name : string, optional
@@ -82,8 +83,9 @@ class ProductComponentModel(object):
     def __init__(self, t=None, i_pr=None, i_cm=None, o_pr=None, o_cm=None, 
                  s_pr=None, s_cm=None, lt_pr=None, lt_cm=None, sc_pr=None, 
                  sc_cm=None, oc_pr=None, oc_cm=None, name='PCM', pdf_pr=None, 
-                 pdf_cm=None, r=None, sf_pr=None, sf_cm=None, reuse_coeff=None,
-                 replacement_coeff=None, tau_cm=None, tau_pr=None, d=None, b=None):
+                 pdf_cm=None, sf_pr=None, sf_cm=None, reuse_coeff=None,
+                 replacement_coeff=None, tau_cm=None, tau_pr=None, d=None, b=None, 
+                 hz_cm=None, hz_pr = None):
         """ Init function. Assign the input data to the instance of the object."""
         self.t = t  # optional
 
@@ -118,7 +120,6 @@ class ProductComponentModel(object):
                     if np.array(lt_cm[ThisKey]).shape[0] == 1:
                         lt_cm[ThisKey] = np.tile(lt_cm[ThisKey], len(t))
 
-        self.r = r # optional
         self.lt_pr = lt_pr  # optional
         self.lt_cm = lt_cm  # optional
         self.name = name  # optional
@@ -137,7 +138,8 @@ class ProductComponentModel(object):
 
         self.pdf_cm = pdf_cm # optional
         self.sf_cm  = sf_cm # optional
-        self.hz_cm = None
+        self.hz_cm = hz_cm # optional
+        self.hz_pr = hz_pr # optional
         
 
     def compute_stock_change_pr(self):
@@ -194,7 +196,7 @@ class ProductComponentModel(object):
 
     def compute_sf_pr(self): # survival functions
         """
-        Survival table self.sf(m,n) denotes the share of an inflow in year n (age-cohort) still present at the end of year m (after m-n years).
+        Survival table self.sf(m,n) denotes the share of a product inflow in year n (age-cohort) still present at the end of year m (after m-n years).
         The computation is self.sf(m,n) = ProbDist.sf(m-n), where ProbDist is the appropriate scipy function for the lifetime model chosen.
         For lifetimes 0 the sf is also 0, meaning that the age-cohort leaves during the same year of the inflow.
         The method compute outflow_sf returns an array year-by-cohort of the surviving fraction of a flow added to stock in year m (aka cohort m) in in year n. This value equals sf(n,m).
@@ -256,7 +258,7 @@ class ProductComponentModel(object):
         
     def compute_sf_cm(self): # survival functions
         """
-        Survival table self.sf(m,n) denotes the share of an inflow in year n (age-cohort) still present at the end of year m (after m-n years).
+        Survival table self.sf(m,n) denotes the share of a component inflow in year n (age-cohort) still present at the end of year m (after m-n years).
         The computation is self.sf(m,n) = ProbDist.sf(m-n), where ProbDist is the appropriate scipy function for the lifetime model chosen.
         For lifetimes 0 the sf is also 0, meaning that the age-cohort leaves during the same year of the inflow.
         The method compute outflow_sf returns an array year-by-cohort of the surviving fraction of a flow added to stock in year m (aka cohort m) in in year n. This value equals sf(n,m).
@@ -344,162 +346,7 @@ class ProductComponentModel(object):
                 self.hz_cm [m+1:,m] = (self.sf_cm[m:-1,m] - self.sf_cm[m+1::,m]) / self.sf_cm[m:-1,m] 
         return self.hz_cm
 
-    def compute_sf_pr_tau(self): # survival functions for when a delay is needed
-        """
-        Survival curve for products where t+tau_pr are needed for replacements/reuse
-        """
-        if self.sf_pr is None:
-            self.sf_pr = np.zeros((len(self.t)+self.tau_pr, len(self.t)+self.tau_pr))
-            # Perform specific computations and checks for each lifetime distribution:
-
-            if self.lt_pr['Type'] == 'Fixed': # fixed lifetime, age-cohort leaves the stock in the model year when the age specified as 'Mean' is reached.
-                tau_array =  np.ones(self.tau_pr) * self.lt_pr['Mean'][-1] # Create an array with the last mean value for the length of tau_pr
-                self.lt_pr['Mean'] = np.concatenate((self.lt_pr['Mean'],tau_array))
-                for m in range(0, len(self.t)+self.tau_pr):  # cohort index
-                    self.sf_pr[m::,m] = np.multiply(1, (np.arange(0,len(self.t)+self.tau_pr-m) < self.lt_pr['Mean'][m])) # converts bool to 0/1
-                # Example: if Lt is 3.5 years fixed, product will still be there after 0, 1, 2, and 3 years, gone after 4 years.
-
-            if self.lt_pr['Type'] == 'Normal': # normally distributed lifetime with mean and standard deviation. Watch out for nonzero values 
-                # for negative ages, no correction or truncation done here. Cf. note below.
-                tau_mean_array =  np.ones(self.tau_pr) * self.lt_pr['Mean'][-1] # Create an array with the last mean value for the length of tau_pr
-                tau_stdev_array =  np.ones(self.tau_pr) * self.lt_pr['StdDev'][-1] # Create an array with the last mean value for the length of tau_pr
-                self.lt_pr['Mean'] = np.concatenate((self.lt_pr['Mean'],tau_mean_array)) # Expand the size of the Mean array with last value by tau_pr
-                self.lt_pr['StdDev'] = np.concatenate((self.lt_pr['StdDev'],tau_stdev_array)) # Expand the size of the StDev array with last value by tau_pr
-                for m in range(0, len(self.t)+self.tau_pr):  # cohort index
-                    if self.lt_pr['Mean'][m] != 0:  # For products with lifetime of 0, sf == 0
-                        self.sf_pr[m::,m] = scipy.stats.norm.sf(np.arange(0,len(self.t)+self.tau_pr-m), loc=self.lt_pr['Mean'][m], scale=self.lt_pr['StdDev'][m])
-                        # NOTE: As normal distributions have nonzero pdf for negative ages, which are physically impossible, 
-                        # these outflow contributions can either be ignored (violates the mass balance) or
-                        # allocated to the zeroth year of residence, the latter being implemented in the method compute compute_o_c_from_s_c.
-                        # As alternative, use lognormal or folded normal distribution options. 
-                        
-            if self.lt_pr['Type'] == 'FoldedNormal': # Folded normal distribution, cf. https://en.wikipedia.org/wiki/Folded_normal_distribution
-                tau_mean_array =  np.ones(self.tau_pr) * self.lt_pr['Mean'][-1] # Create an array with the last mean value for the length of tau_pr
-                tau_stdev_array =  np.ones(self.tau_pr) * self.lt_pr['StdDev'][-1] # Create an array with the last mean value for the length of tau_pr
-                self.lt_pr['Mean'] = np.concatenate((self.lt_pr['Mean'],tau_mean_array)) # Expand the size of the Mean array with last value by tau_pr
-                self.lt_pr['StdDev'] = np.concatenate((self.lt_pr['StdDev'],tau_stdev_array)) # Expand the size of the StDev array with last value by tau_pr
-                for m in range(0, len(self.t)):  # cohort index
-                    if self.lt_pr['Mean'][m] != 0:  # For products with lifetime of 0, sf == 0
-                        self.sf_pr[m::,m] = scipy.stats.foldnorm.sf(np.arange(0,len(self.t)-m), self.lt_pr['Mean'][m]/self.lt_pr['StdDev'][m], 0, scale=self.lt_pr['StdDev'][m])
-                        # NOTE: call this option with the parameters of the normal distribution mu and sigma of curve BEFORE folding,
-                        # curve after folding will have different mu and sigma.
-                        
-            if self.lt_pr['Type'] == 'LogNormal': # lognormal distribution
-                tau_mean_array =  np.ones(self.tau_pr) * self.lt_pr['Mean'][-1] # Create an array with the last mean value for the length of tau_pr
-                tau_stdev_array =  np.ones(self.tau_pr) * self.lt_pr['StdDev'][-1] # Create an array with the last mean value for the length of tau_pr
-                self.lt_pr['Mean'] = np.concatenate((self.lt_pr['Mean'],tau_mean_array)) # Expand the size of the Mean array with last value by tau_pr
-                self.lt_pr['StdDev'] = np.concatenate((self.lt_pr['StdDev'],tau_stdev_array)) # Expand the size of the StDev array with last value by tau_pr
-                # Here, the mean and stddev of the lognormal curve, 
-                # not those of the underlying normal distribution, need to be specified! conversion of parameters done here:
-                for m in range(0, len(self.t)):  # cohort index
-                    if self.lt_pr['Mean'][m] != 0:  # For products with lifetime of 0, sf == 0
-                        # calculate parameter mu    of underlying normal distribution:
-                        LT_LN = np.log(self.lt_pr['Mean'][m] / np.sqrt(1 + self.lt_pr['Mean'][m] * self.lt_pr['Mean'][m] / (self.lt_pr['StdDev'][m] * self.lt_pr['StdDev'][m]))) 
-                        # calculate parameter sigma of underlying normal distribution:
-                        SG_LN = np.sqrt(np.log(1 + self.lt_pr['Mean'][m] * self.lt_pr['Mean'][m] / (self.lt_pr['StdDev'][m] * self.lt_pr['StdDev'][m])))
-                        # compute survial function
-                        self.sf_pr[m::,m] = scipy.stats.lognorm.sf(np.arange(0,len(self.t)-m), s=SG_LN, loc = 0, scale=np.exp(LT_LN)) 
-                        # values chosen according to description on
-                        # https://docs.scipy.org/doc/scipy-0.13.0/reference/generated/scipy.stats.lognorm.html
-                        # Same result as EXCEL function "=LOGNORM.VERT(x;LT_LN;SG_LN;TRUE)"
-                        
-            if self.lt_pr['Type'] == 'Weibull': # Weibull distribution with standard definition of scale and shape parameters
-                tau_mean_array =  np.ones(self.tau_pr) * self.lt_pr['Shape'][-1] # Create an array with the last mean value for the length of tau_pr
-                tau_stdev_array =  np.ones(self.tau_pr) * self.lt_pr['Scale'][-1] # Create an array with the last mean value for the length of tau_pr
-                self.lt_pr['Shape'] = np.concatenate((self.lt_pr['Shape'],tau_mean_array)) # Expand the size of the Mean array with last value by tau_pr
-                self.lt_pr['Scale'] = np.concatenate((self.lt_pr['Scale'],tau_stdev_array)) # Expand the size of the StDev array with last value by tau_pr
-                for m in range(0, len(self.t)):  # cohort index
-                    if self.lt_pr['Shape'][m] != 0:  # For products with lifetime of 0, sf == 0
-                        self.sf_pr[m::,m] = scipy.stats.weibull_min.sf(np.arange(0,len(self.t)-m), c=self.lt_pr['Shape'][m], loc = 0, scale=self.lt_pr['Scale'][m])
-
-
-            return self.sf_pr
-        else:
-            # sf already exists
-            return self.sf_pr
-
-
-    def compute_sf_cm_tau(self): # survival functions for when a delay is needed
-        """
-        Survival table self.sf(m,n) denotes the share of an inflow in year n (age-cohort) still present at the end of year m (after m-n years).
-        The computation is self.sf(m,n) = ProbDist.sf(m-n), where ProbDist is the appropriate scipy function for the lifetime model chosen.
-        For lifetimes 0 the sf is also 0, meaning that the age-cohort leaves during the same year of the inflow.
-        The method compute outflow_sf returns an array year-by-cohort of the surviving fraction of a flow added to stock in year m (aka cohort m) in in year n. This value equals sf(n,m).
-        This is the only method for the inflow-driven model where the lifetime distribution directly enters the computation. All other stock variables are determined by mass balance.
-        The shape of the output sf array is NoofYears * NoofYears, and the meaning is years by age-cohorts.
-        The method does nothing if the sf alreay exists. For example, sf could be assigned to the dynamic stock model from an exogenous computation to save time.
-        """
-        
-        if self.sf_cm is None:
-            self.sf_cm = np.zeros((len(self.t)+self.tau_cm, len(self.t)+self.tau_cm))
-            # Perform specific computations and checks for each lifetime distribution:
-
-            if self.lt_cm['Type'] == 'Fixed': # fixed lifetime, age-cohort leaves the stock in the model year when the age specified as 'Mean' is reached.
-                tau_array =  np.ones(self.tau_cm) * self.lt_cm['Mean'][-1] # Create an array with the last mean value for the length of tau_cm
-                self.lt_cm['Mean'] = np.concatenate((self.lt_cm['Mean'],tau_array))
-                for m in range(0, len(self.t)+self.tau_cm):  # cohort index
-                    self.sf_cm[m::,m] = np.multiply(1, (np.arange(0,len(self.t)+self.tau_cm-m) < self.lt_cm['Mean'][m])) # converts bool to 0/1
-                # Example: if Lt is 3.5 years fixed, product will still be there after 0, 1, 2, and 3 years, gone after 4 years.
-
-            if self.lt_cm['Type'] == 'Normal': # normally distributed lifetime with mean and standard deviation. Watch out for nonzero values 
-                # for negative ages, no correction or truncation done here. Cf. note below.
-                tau_mean_array =  np.ones(self.tau_cm) * self.lt_cm['Mean'][-1] # Create an array with the last mean value for the length of tau_cm
-                tau_stdev_array =  np.ones(self.tau_cm) * self.lt_cm['StdDev'][-1] # Create an array with the last mean value for the length of tau_cm
-                self.lt_cm['Mean'] = np.concatenate((self.lt_cm['Mean'],tau_mean_array)) # Expand the size of the Mean array with last value by tau_cm
-                self.lt_cm['StdDev'] = np.concatenate((self.lt_cm['StdDev'],tau_stdev_array)) # Expand the size of the StDev array with last value by tau_cm
-                for m in range(0, len(self.t)+self.tau_cm):  # cohort index
-                    if self.lt_cm['Mean'][m] != 0:  # For products with lifetime of 0, sf == 0
-                        self.sf_cm[m::,m] = scipy.stats.norm.sf(np.arange(0,len(self.t)+self.tau_cm-m), loc=self.lt_cm['Mean'][m], scale=self.lt_cm['StdDev'][m])
-                        # NOTE: As normal distributions have nonzero pdf for negative ages, which are physically impossible, 
-                        # these outflow contributions can either be ignored (violates the mass balance) or
-                        # allocated to the zeroth year of residence, the latter being implemented in the method compute compute_o_c_from_s_c.
-                        # As alternative, use lognormal or folded normal distribution options.
-                        
-            if self.lt_cm['Type'] == 'FoldedNormal': # Folded normal distribution, cf. https://en.wikipedia.org/wiki/Folded_normal_distribution
-                tau_mean_array =  np.ones(self.tau_cm) * self.lt_cm['Mean'][-1] # Create an array with the last mean value for the length of tau_cm
-                tau_stdev_array =  np.ones(self.tau_cm) * self.lt_cm['StdDev'][-1] # Create an array with the last mean value for the length of tau_cm
-                self.lt_cm['Mean'] = np.concatenate((self.lt_cm['Mean'],tau_mean_array)) # Expand the size of the Mean array with last value by tau_cm
-                self.lt_cm['StdDev'] = np.concatenate((self.lt_cm['StdDev'],tau_stdev_array)) # Expand the size of the StDev array with last value by tau_cm
-                for m in range(0, len(self.t)):  # cohort index
-                    if self.lt_cm['Mean'][m] != 0:  # For products with lifetime of 0, sf == 0
-                        self.sf_cm[m::,m] = scipy.stats.foldnorm.sf(np.arange(0,len(self.t)-m), self.lt_cm['Mean'][m]/self.lt_cm['StdDev'][m], 0, scale=self.lt_cm['StdDev'][m])
-                        # NOTE: call this option with the parameters of the normal distribution mu and sigma of curve BEFORE folding,
-                        # curve after folding will have different mu and sigma.
-                        
-            if self.lt_cm['Type'] == 'LogNormal': # lognormal distribution
-                tau_mean_array =  np.ones(self.tau_cm) * self.lt_cm['Mean'][-1] # Create an array with the last mean value for the length of tau_cm
-                tau_stdev_array =  np.ones(self.tau_cm) * self.lt_cm['StdDev'][-1] # Create an array with the last mean value for the length of tau_cm
-                self.lt_cm['Mean'] = np.concatenate((self.lt_cm['Mean'],tau_mean_array)) # Expand the size of the Mean array with last value by tau_cm
-                self.lt_cm['StdDev'] = np.concatenate((self.lt_cm['StdDev'],tau_stdev_array)) # Expand the size of the StDev array with last value by tau_cm
-                # Here, the mean and stddev of the lognormal curve, 
-                # not those of the underlying normal distribution, need to be specified! conversion of parameters done here:
-                for m in range(0, len(self.t)):  # cohort index
-                    if self.lt_cm['Mean'][m] != 0:  # For products with lifetime of 0, sf == 0
-                        # calculate parameter mu    of underlying normal distribution:
-                        LT_LN = np.log(self.lt_cm['Mean'][m] / np.sqrt(1 + self.lt_cm['Mean'][m] * self.lt_cm['Mean'][m] / (self.lt_cm['StdDev'][m] * self.lt_cm['StdDev'][m]))) 
-                        # calculate parameter sigma of underlying normal distribution:
-                        SG_LN = np.sqrt(np.log(1 + self.lt_cm['Mean'][m] * self.lt_cm['Mean'][m] / (self.lt_cm['StdDev'][m] * self.lt_cm['StdDev'][m])))
-                        # compute survial function
-                        self.sf_cm[m::,m] = scipy.stats.lognorm.sf(np.arange(0,len(self.t)-m), s=SG_LN, loc = 0, scale=np.exp(LT_LN)) 
-                        # values chosen according to description on
-                        # https://docs.scipy.org/doc/scipy-0.13.0/reference/generated/scipy.stats.lognorm.html
-                        # Same result as EXCEL function "=LOGNORM.VERT(x;LT_LN;SG_LN;TRUE)"
-                        
-            if self.lt_cm['Type'] == 'Weibull': # Weibull distribution with standard definition of scale and shape parameters
-                tau_mean_array =  np.ones(self.tau_cm) * self.lt_cm['Shape'][-1] # Create an array with the last mean value for the length of tau_cm
-                tau_stdev_array =  np.ones(self.tau_cm) * self.lt_cm['Scale'][-1] # Create an array with the last mean value for the length of tau_cm
-                self.lt_cm['Shape'] = np.concatenate((self.lt_cm['Shape'],tau_mean_array)) # Expand the size of the Mean array with last value by tau_cm
-                self.lt_cm['Scale'] = np.concatenate((self.lt_cm['Scale'],tau_stdev_array)) # Expand the size of the StDev array with last value by tau_cm
-                for m in range(0, len(self.t)):  # cohort index
-                    if self.lt_cm['Shape'][m] != 0:  # For products with lifetime of 0, sf == 0
-                        self.sf_cm[m::,m] = scipy.stats.weibull_min.sf(np.arange(0,len(self.t)-m), c=self.lt_cm['Shape'][m], loc = 0, scale=self.lt_cm['Scale'][m])
-
-
-            return self.sf_cm
-        else:
-            # sf already exists
-            return self.sf_cm
-
+    
     def case_1(self):
         '''
         Products have a lifetime that includes all types of failures, component EoL being one of them. No component replacement. 1 product = one component, Outflow component = outflow product 
@@ -508,49 +355,45 @@ class ProductComponentModel(object):
         affected by failures in the component and potential damages. Therefore, the probability that a failure occurs is greater than the techical lifetime of the product itself and should lead
         to a shorter choice of lifetime. 
 
-        This is a simpler and less explicit method for accounting for failures of both products with a single lifetime. 
+        This approach is equivalent as the traditional one-lifetime approach used in dynamic models.
         '''
-        if self.s_pr is not None:
-            if self.lt_pr is not None: 
-                self.sc_pr = np.zeros((len(self.t), len(self.t)))
-                self.oc_pr = np.zeros((len(self.t), len(self.t)))
-                self.i_pr = np.zeros(len(self.t))
-                self.sc_cm = np.zeros((len(self.t), len(self.t)))
-                self.oc_cm = np.zeros((len(self.t), len(self.t)))
-                self.i_cm = np.zeros(len(self.t))
-                # construct the sf of a product of cohort tc remaining in the stock in year t
-                self.compute_sf_pr() # Computes sf if not present already.
-                if self.sf_pr[0, 0] != 0: # Else, inflow is 0.
-                    self.i_pr[0] = self.s_pr[0] / self.sf_pr[0, 0]
-                self.sc_pr[:, 0] = self.i_pr[0] * self.sf_pr[:, 0] # Future decay of age-cohort of year 0.
-                self.oc_pr[0, 0] = self.i_pr[0] - self.sc_pr[0, 0]
-                # all other years:
-                for m in range(1, len(self.t)):  # for all years m, starting in second year
-                    # 1) Compute outflow from previous age-cohorts up to m-1
-                    self.oc_pr[m, 0:m] = self.sc_pr[m-1, 0:m] - self.sc_pr[m, 0:m] # outflow table is filled row-wise, for each year m.
-                    # 2) Determine inflow from mass balance:
-                    
-                    if self.sf_pr[m,m] != 0: # Else, inflow is 0.
-                        self.i_pr[m] = (self.s_pr[m] - self.sc_pr[m, :].sum()) / self.sf_pr[m,m] # allow for outflow during first year by rescaling with 1/sf[m,m]
-                    # 3) Add new inflow to stock and determine future decay of new age-cohort
-                    self.sc_pr[m::, m] = self.i_pr[m] * self.sf_pr[m::, m]
-                    self.oc_pr[m, m]   = self.i_pr[m] * (1 - self.sf_pr[m, m])
-                # 4) Determining the values for the component
-                self.sc_cm = self.sc_pr
-                self.oc_cm = self.oc_pr 
-                self.s_cm = self.s_pr
-                self.i_cm = self.i_pr
-                # Calculating total values
-                self.o_pr = self.oc_pr.sum(axis=1)
-                self.o_cm = self.oc_cm.sum(axis=1)
-                    
-                return self.sc_pr, self.sc_cm, self.i_pr, self.i_cm, self.oc_pr, self.oc_cm
-            else:
-                raise Exception('No lifetime specified')
-                return None, None, None, None, None, None
-        else:
+        if self.s_pr is None:
             raise Exception('No stock specified')
-            return None, None, None, None, None, None
+        if self.lt_pr is  None: 
+            raise Exception('No product lifetime specified')
+
+        self.sc_pr = np.zeros((len(self.t), len(self.t)))
+        self.oc_pr = np.zeros((len(self.t), len(self.t)))
+        self.i_pr = np.zeros(len(self.t))
+        self.sc_cm = np.zeros((len(self.t), len(self.t)))
+        self.oc_cm = np.zeros((len(self.t), len(self.t)))
+        self.i_cm = np.zeros(len(self.t))
+        # construct the sf of a product of cohort tc remaining in the stock in year t
+        self.compute_sf_pr() # Computes sf if not present already.
+        if self.sf_pr[0, 0] != 0: # Else, inflow is 0.
+            self.i_pr[0] = self.s_pr[0] / self.sf_pr[0, 0]
+        self.sc_pr[:, 0] = self.i_pr[0] * self.sf_pr[:, 0] # Future decay of age-cohort of year 0.
+        self.oc_pr[0, 0] = self.i_pr[0] - self.sc_pr[0, 0]
+        # all other years:
+        for m in range(1, len(self.t)):  # for all years m, starting in second year
+            # 1) Compute outflow from previous age-cohorts up to m-1
+            self.oc_pr[m, 0:m] = self.sc_pr[m-1, 0:m] - self.sc_pr[m, 0:m] # outflow table is filled row-wise, for each year m.
+            # 2) Determine inflow from mass balance:
+            
+            if self.sf_pr[m,m] != 0: # Else, inflow is 0.
+                self.i_pr[m] = (self.s_pr[m] - self.sc_pr[m, :].sum()) / self.sf_pr[m,m] # allow for outflow during first year by rescaling with 1/sf[m,m]
+            # 3) Add new inflow to stock and determine future decay of new age-cohort
+            self.sc_pr[m::, m] = self.i_pr[m] * self.sf_pr[m::, m]
+            self.oc_pr[m, m]   = self.i_pr[m] * (1 - self.sf_pr[m, m])
+        # 4) Determining the values for the component
+        self.sc_cm = self.sc_pr
+        self.oc_cm = self.oc_pr 
+        self.s_cm = self.s_pr
+        self.i_cm = self.i_pr
+        # Calculating total values
+        self.o_pr = self.oc_pr.sum(axis=1)
+        self.o_cm = self.oc_cm.sum(axis=1)
+                
           
           
     def case_1_hz(self):
@@ -566,10 +409,8 @@ class ProductComponentModel(object):
          '''
         if self.s_pr is None:
             raise Exception('No stock specified')
-            return None, None, None, None, None
         if self.lt_pr is  None: 
             raise Exception('No product lifetime specified')
-            return None, None, None, None, None
 
         # stock composition per year, product cohort and component cohort
         self.s_tpc = np.zeros((len(self.t), len(self.t), len(self.t))) #
@@ -619,174 +460,70 @@ class ProductComponentModel(object):
         self.oc_cm = np.einsum('tpc->tc', self.o_tpc)
         self.sc_pr  = np.einsum('tpc->tp', self.s_tpc)
         self.sc_cm  = np.einsum('tpc->tc', self.s_tpc)
-        return self.s_tpc, self.i_pr, self.i_cm, self.o_pr, self.o_cm
           
     def case_2(self):
         '''
-        Products have a lifetime that includes all types of failures, component EoL being one of them. Still, it is assumed that some components will be replaced at a given rate r. 
+        Products have a lifetime that includes all types of failures, component EoL being one of them. Still, it is assumed that some components will be replaced at a given rate replacement_coeff. 
         More than one component is used in the lifetime of the product. Outflow component >= outflow product
 
         In this case the failure of components is accounted for by a replacement rate and therefore the lifetime of the vehicle can be assumed to not be affected to the same extent as in case 1. 
         Limitations to this approach might be that the outflows and component inflows are estimated at different times as the case where a separate lifetime would be calculated for the components. 
         It is more suitable if the stock is approximately constant.  
         '''
-        if self.s_pr is not None:
-            if self.lt_pr is not None:
-                if self.replacement_coeff is not None: 
-                    self.sc_pr = np.zeros((len(self.t), len(self.t)))
-                    self.oc_pr = np.zeros((len(self.t), len(self.t)))
-                    self.i_pr = np.zeros(len(self.t))
-
-                    self.i_cm = np.zeros(len(self.t))
-                    # construct the sf of a product of cohort tc remaining in the stock in year t
-                    self.compute_sf_pr() # Computes sf if not present already.
-                    if self.sf_pr[0, 0] != 0: # Else, inflow is 0.
-                        self.i_pr[0] = self.s_pr[0] / self.sf_pr[0, 0]
-                    self.sc_pr[:, 0] = self.i_pr[0] * self.sf_pr[:, 0] # Future decay of age-cohort of year 0.
-                    self.oc_pr[0, 0] = self.i_pr[0] - self.sc_pr[0, 0]
-                    # all other years:
-                    for m in range(1, len(self.t)):  # for all years m, starting in second year
-                        # 1) Compute outflow from previous age-cohorts up to m-1
-                        self.oc_pr[m, 0:m] = self.sc_pr[m-1, 0:m] - self.sc_pr[m, 0:m] # outflow table is filled row-wise, for each year m.
-                        # 2) Determine inflow from mass balance:
-                        
-                        if self.sf_pr[m,m] != 0: # Else, inflow is 0.
-                            self.i_pr[m] = (self.s_pr[m] - self.sc_pr[m, :].sum()) / self.sf_pr[m,m] # allow for outflow during first year by rescaling with 1/sf[m,m]
-                        # 3) Add new inflow to stock and determine future decay of new age-cohort
-                        self.sc_pr[m::, m] = self.i_pr[m] * self.sf_pr[m::, m]
-                        self.oc_pr[m, m]   = self.i_pr[m] * (1 - self.sf_pr[m, m])
-                    # 4) Determining the values for the component
-                    self.s_cm = self.s_pr
-                    self.i_cm = self.i_pr * (1 + self.replacement_coeff)
-                    self.o_cm = self.i_cm - self.compute_stock_change_cm()
-
-                    # Calculating total values
-                    self.o_pr = self.oc_pr.sum(axis=1)
-
-                    return self.sc_pr, self.i_pr, self.i_cm, self.oc_pr
-                else:
-                    raise Exception('No replacement rate specified')
-                    return None, None, None, None, None, None
-            else:
-                raise Exception('No lifetime specified')
-                return None, None, None, None, None, None
-        else:
+        if self.s_pr is None:
             raise Exception('No stock specified')
-            return None, None, None, None, None, None
+        if self.lt_pr is None:
+            raise Exception('No product lifetime specified')
+        if self.replacement_coeff is None: 
+            raise Exception('No replacement rate specified')
+        self.sc_pr = np.zeros((len(self.t), len(self.t)))
+        self.oc_pr = np.zeros((len(self.t), len(self.t)))
+        self.i_pr = np.zeros(len(self.t))
 
-    def case_3_old(self):
-        '''
-        Products and components have independent lifetimes. Potential failure of the component is not included in the lifetime of the product. Components can neither be replaced nor reused, meaning that if 
-        either the product or the component fail, they are both scrapped.
+        self.i_cm = np.zeros(len(self.t))
+        # construct the sf of a product of cohort tc remaining in the stock in year t
+        self.compute_sf_pr() # Computes sf if not present already.
+        if self.sf_pr[0, 0] != 0: # Else, inflow is 0.
+            self.i_pr[0] = self.s_pr[0] / self.sf_pr[0, 0]
+        self.sc_pr[:, 0] = self.i_pr[0] * self.sf_pr[:, 0] # Future decay of age-cohort of year 0.
+        self.oc_pr[0, 0] = self.i_pr[0] - self.sc_pr[0, 0]
+        # all other years:
+        for m in range(1, len(self.t)):  # for all years m, starting in second year
+            # 1) Compute outflow from previous age-cohorts up to m-1
+            self.oc_pr[m, 0:m] = self.sc_pr[m-1, 0:m] - self.sc_pr[m, 0:m] # outflow table is filled row-wise, for each year m.
+            # 2) Determine inflow from mass balance:
+            
+            if self.sf_pr[m,m] != 0: # Else, inflow is 0.
+                self.i_pr[m] = (self.s_pr[m] - self.sc_pr[m, :].sum()) / self.sf_pr[m,m] # allow for outflow during first year by rescaling with 1/sf[m,m]
+            # 3) Add new inflow to stock and determine future decay of new age-cohort
+            self.sc_pr[m::, m] = self.i_pr[m] * self.sf_pr[m::, m]
+            self.oc_pr[m, m]   = self.i_pr[m] * (1 - self.sf_pr[m, m])
+        # 4) Determining the values for the component
+        self.s_cm = self.s_pr
+        self.i_cm = self.i_pr * (1 + self.replacement_coeff)
+        self.o_cm = self.i_cm - self.compute_stock_change_cm()
 
-        In this case, the combined lifetimes of the component and the product yield a smaller effective lifetime that dictates the outflows based on all failures. 
-        This would be a similar case as 1, but the effective lifetime choice is more explicit and potentially more robust, since it considers aspects of both products. 
+        # Calculating total values
+        self.o_pr = self.oc_pr.sum(axis=1)
 
-        To avoid double-counting of outflows in the case that a product and component falure occur at the same time, we adjust the real stock with a virtual one after the outflows of the product have occurred.
-        This means that when there is a risk of double counting, the outflows are attributed to product failures. 
-
-        The real outflows in this case are equal to the product attributed outflows + the component attributed outflows.
-        '''
-        if self.s_pr is not None:
-            if self.lt_pr is not None: 
-                if self.lt_cm is not None:
-                    self.s_cm = self.s_pr #both stocks are always equal
-                    self.sc_pr = np.zeros((len(self.t), len(self.t)))
-                    self.oc_pr = np.zeros((len(self.t), len(self.t)))
-                    self.i_pr = np.zeros(len(self.t))
-                    self.sc_cm = np.zeros((len(self.t), len(self.t)))
-                    self.oc_cm = np.zeros((len(self.t), len(self.t)))
-                    self.i_cm = np.zeros(len(self.t))                 
-                    self.oc_due_to_pr = np.zeros((len(self.t), len(self.t))) #outflows caused by product failure
-                    self.oc_due_to_cm = np.zeros((len(self.t), len(self.t))) #outflows caused by component failure
-                    self.oc_both = np.zeros((len(self.t), len(self.t))) #outflows caused by "simultaneous" failure on the same year
-                    self.ds_pr = np.concatenate((np.array([0]), np.diff(self.s_pr)))
-                    self.o_cm = np.zeros(len(self.t))
-                    self.o_pr = np.zeros(len(self.t))
-                    
-                    # construct the sf of a product of cohort tc remaining in the stock in year t
-                    self.compute_sf_pr() # Computes sf if not present already.
-                    self.compute_sf_cm() # Computes sf of component if not present already.
-                    
-                    # Initializing values
-                    self.sc_pr[0,0] = self.s_pr[0]
-                    if self.sf_pr[0, 0] != 0: # Else, inflow is 0.
-                        self.i_pr[0] = self.s_pr[0] / self.sf_pr[0, 0]
-                    self.sc_pr[:, 0] = self.i_pr[0] * self.sf_pr[:, 0] # Future decay of age-cohort of year 0.
-                    self.oc_pr[0, 0] = self.i_pr[0] - self.sc_pr[0, 0]
-                    # The intial values are the same for the component
-                    self.sc_cm[0,0] = self.sc_pr[0,0]
-                    self.o_cm[0] = 0 
-                    self.i_cm[0] = self.i_pr[0]
-                    
-                    # all other years:            
-                    for m in range(1, len(self.t)):  # for all years m, starting in second year
-                        # 1) Compute outflow from previous age-cohorts up to m-1
-                        if self.sf_pr[m,m] != 0 and self.sf_cm[m,m] != 0: # Else, inflow is 0.
-                            for c in range(m):
-                                # Calculating outflows attributed to product failures, correcting for lower value of remaining stock 
-                                if self.sf_pr[m-1,c] !=0:
-                                    self.oc_due_to_pr[m, c] = self.sc_pr[m-1, c] / self.sf_pr[m-1, c] * abs(self.sf_pr[m, c] - self.sf_pr[m-1, c])
-                                # Calculating outflows attributed to component failures, correcting for lower value of remaining stock
-                                if self.sf_cm[m-1,c] !=0:
-                                    self.oc_due_to_cm[m, c] = self.sc_cm[m-1, c] / self.sf_cm[m-1,c] * abs(self.sf_cm[m, c] - self.sf_cm[m-1, c])
-                                # Calculating outflows where both product and components failed during the year
-                                if self.sc_pr[m-1, c]!=0:
-                                    self.oc_both[m, c] = self.oc_due_to_pr[m, c] / self.sc_pr[m-1, c] * self.oc_due_to_cm[m, c]
-                            # Correcting outflows to avoid double counting
-                            self.oc_due_to_pr[m, 0:m] -=  self.oc_both[m,  0:m]
-                            self.oc_due_to_cm[m, 0:m] -=  self.oc_both[m,  0:m]
-                            # Calculating total outflows
-                            oc_total = self.oc_due_to_pr[m, 0:m] + self.oc_due_to_cm[m, 0:m] + self.oc_both[m,  0:m]
-                            # Computing real stock
-                            self.sc_pr[m,0:m] = self.sc_pr[m-1,:m] - oc_total
-                            self.sc_cm[m,0:m] = self.sc_pr[m,0:m]
-                            # no replacement or reuse allowed: fixing outflows
-                            self.oc_pr[m, 0:m] =  oc_total
-                            self.oc_cm[m, 0:m] =  oc_total
-                            # 2) Determine inflow from mass balance:
-                            # self.i_pr[m] = (self.s_pr[m] - self.sc_pr[m, :].sum())
-                            if self.sf_pr[m,m] != 0: # Else, inflow is 0.
-                                self.i_pr[m] = (self.s_pr[m] - self.sc_pr[m, :].sum()) / self.sf_pr[m,m] # allow for outflow during first year by rescaling with 1/sf[m,m]
-                            self.i_cm[m] = self.i_pr[m] #one new component per new product                         
-                        # 3) Add new inflow to stock 
-                            self.sc_pr[m,m] = self.i_pr[m]
-                            self.sc_cm[m,m] = self.i_cm[m]
-                    self.o_pr = self.oc_pr.sum(axis=1)
-                    self.o_cm = self.oc_cm.sum(axis=1)
-                    return self.sc_pr, self.i_pr, self.i_cm, self.o_pr, self.o_cm
-                else:
-                    raise Exception('No component lifetime specified')
-                    return None, None, None, None, None, None
-            else:
-                raise Exception('No product lifetime specified')
-                return None, None, None, None, None, None
-        else:
-            raise Exception('No stock specified')
-            return None, None, None, None, None, None
 
     def case_3(self):
         '''
-        Products and components have independent lifetimes. Potential failure of the component is not included in the lifetime of the product. Components can neither be replaced nor reused, meaning that if 
+        Products and components have independent hazard functions. Potential failure of the component is not included in the hazard function of the product. Components can neither be replaced nor reused, meaning that if 
         either the product or the component fail, they are both scrapped.
 
-        In this case, the combined lifetimes of the component and the product yield a smaller effective lifetime that dictates the outflows based on all failures. 
-        This would be a similar case as 1, but the effective lifetime choice is more explicit and potentially more robust, since it considers aspects of both products. 
+        In this case, the combined hazard functions of the component and the product yield a smaller in-use time that dictates the outflows based on all failures. 
+        This would be a similar case as 1, but the in-use time is the result of the combined dynamics of the hazard functions.
 
-        To avoid double-counting of outflows in the case that a product and component falure occur at the same time, we adjust the real stock with a virtual one after the outflows of the product have occurred.
-        This means that when there is a risk of double counting, the outflows are attributed to product failures. 
+        Double-counting is accounted for by considering the overlapping probability of failure of product and component during the same year.
 
-        The real outflows in this case are equal to the product attributed outflows + the component attributed outflows.
         '''
         if self.s_pr is None:
             raise Exception('No stock specified')
-            return None, None, None, None, None
         if self.lt_pr is  None: 
             raise Exception('No product lifetime specified')
-            return None, None, None, None, None
         if self.lt_cm is None:
             raise Exception('No component lifetime specified')
-            return None, None, None, None, None
         
         # stock composition per year, product cohort and component cohort
         self.s_tpc = np.zeros((len(self.t), len(self.t), len(self.t))) #
@@ -855,33 +592,27 @@ class ProductComponentModel(object):
         self.oc_cm = np.einsum('tpc->tc', self.o_tpc)
         self.sc_pr  = np.einsum('tpc->tp', self.s_tpc)
         self.sc_cm  = np.einsum('tpc->tc', self.s_tpc)
-        return self.s_tpc, self.i_pr, self.i_cm, self.o_pr, self.o_cm
 
     
         
     def case_4(self):
         '''
-        Products and components have independent lifetimes. Potential failure of the component is not included in the lifetime of the product. 
+        Products and components have independent hazard functions. Potential failure of the component is not included in the hazard function of the product. 
         Components cannot be replaced, but they can be reused. If the component fails, the product is scrapped. 
-        If the product fails but the status of the component is still good, it can be reused in a new product. 
-        This case does not necessarily make sense for cars, but could be useful for other applications.
-
-        To determine the amount of components that have gone out, we take the outflows due to vehicle failures and use the probability of the component still being useful 
-        from the component survival function with a delay tau to ensure that we don't reuse components that will fail soon anyway. Since we attribute simultanious failures 
-        to the components anyway, we should be onm the conservative side of the potential components for reuse. 
+        
+        If the product fails but the status of the component is still good, it can be reused in a new product according to the reuse_coeff. 
 
         The stock composition of the product is no longer equal to the stock composition of the component, but the total stock is. 
         '''
         
         if self.s_pr is None:
             raise Exception('No stock specified')
-            return None, None, None, None, None
         if self.lt_pr is  None: 
             raise Exception('No product lifetime specified')
-            return None, None, None, None, None
         if self.lt_cm is None:
             raise Exception('No component lifetime specified')
-            return None, None, None, None, None
+        if self.reuse_coeff is None:
+            raise Exception('No reuse coefficient specified')
         
         # stock composition per year, product cohort and component cohort
         self.s_tpc = np.zeros((len(self.t), len(self.t), len(self.t))) #
@@ -940,7 +671,7 @@ class ProductComponentModel(object):
                 if new_inflow_pr >= self.reuse_tpc_cm[m,:m,:m].sum():
                     self.s_tpc[m,m,:m] = np.einsum('pc -> c', self.reuse_tpc_cm[m,:m,:m])
                                         
-                ##### TO DO: fix case when there is too much reuse, also in the i_cm calculation
+                ##### TODO: fix case when there is too much reuse, also in the i_cm calculation
                 
                 
                 # Add new product cohort with new components to stock 
@@ -973,31 +704,26 @@ class ProductComponentModel(object):
         self.oc_cm  = np.einsum('tpc->tc', self.o_tpc - self.reuse_tpc_cm)
         self.sc_pr  = np.einsum('tpc->tp', self.s_tpc)
         self.sc_cm  = np.einsum('tpc->tc', self.s_tpc)
-        return self.s_tpc, self.i_pr, self.i_cm, self.o_pr, self.o_cm
     
     def case_4_max_age(self,max_age):
         '''
-        Products and components have independent lifetimes. Potential failure of the component is not included in the lifetime of the product. 
+        Products and components have independent hazard functions. Potential failure of the component is not included in the hazard function of the product. 
         Components cannot be replaced, but they can be reused. If the component fails, the product is scrapped. 
-        If the product fails but the status of the component is still good, it can be reused in a new product. 
-        This case does not necessarily make sense for cars, but could be useful for other applications.
-
-        To determine the amount of components that have gone out, we take the outflows due to vehicle failures and use the probability of the component still being useful 
-        from the component survival function with a delay tau to ensure that we don't reuse components that will fail soon anyway. Since we attribute simultanious failures 
-        to the components anyway, we should be onm the conservative side of the potential components for reuse. 
+        
+        If the product fails but the status of the component is still good, it can be reused in a new product according to the reuse_coeff. 
+        In addition to the approach in case 4, here the maximum age of the reused components may be defined as an additional constraint to the reuse_coeff.
 
         The stock composition of the product is no longer equal to the stock composition of the component, but the total stock is. 
         '''
         
         if self.s_pr is None:
             raise Exception('No stock specified')
-            return None, None, None, None, None
         if self.lt_pr is  None: 
             raise Exception('No product lifetime specified')
-            return None, None, None, None, None
         if self.lt_cm is None:
             raise Exception('No component lifetime specified')
-            return None, None, None, None, None
+        if self.reuse_coeff is None:
+            raise Exception('No reuse coefficient specified')
         
         # stock composition per year, product cohort and component cohort
         self.s_tpc = np.zeros((len(self.t), len(self.t), len(self.t))) #
@@ -1092,32 +818,24 @@ class ProductComponentModel(object):
         self.oc_cm  = np.einsum('tpc->tc', self.o_tpc - self.reuse_tpc_cm)
         self.sc_pr  = np.einsum('tpc->tp', self.s_tpc)
         self.sc_cm  = np.einsum('tpc->tc', self.s_tpc)
-        return self.s_tpc, self.i_pr, self.i_cm, self.o_pr, self.o_cm
            
         
     def case_5(self):
         '''
-        Products and components have independent lifetimes. Potential failure of the component is not included in the lifetime of the product. 
-        Components cannot be replaced, but they can be reused. If the component fails, the product is scrapped. 
-        If the product fails but the status of the component is still good, it can be reused in a new product. 
-        This case does not necessarily make sense for cars, but could be useful for other applications.
-
-        To determine the amount of components that have gone out, we take the outflows due to vehicle failures and use the probability of the component still being useful 
-        from the component survival function with a delay tau to ensure that we don't reuse components that will fail soon anyway. Since we attribute simultanious failures 
-        to the components anyway, we should be onm the conservative side of the potential components for reuse. 
-
+        Products and components have independent hazard functions. Potential failure of the component is not included in the hazard function of the product. 
+        Components cannot be reused, but they can be replaced. If the component fails, the product is can get a replacement according to the replacement_coeff. 
+        
         The stock composition of the product is no longer equal to the stock composition of the component, but the total stock is. 
         '''
         
         if self.s_pr is None:
             raise Exception('No stock specified')
-            return None, None, None, None, None
         if self.lt_pr is  None: 
             raise Exception('No product lifetime specified')
-            return None, None, None, None, None
         if self.lt_cm is None:
             raise Exception('No component lifetime specified')
-            return None, None, None, None, None
+        if self.replacement_coeff is None:
+            raise Exception('No replacement coefficient specified')
         
         # stock composition per year, product cohort and component cohort
         self.s_tpc = np.zeros((len(self.t), len(self.t), len(self.t))) #
@@ -1204,43 +922,38 @@ class ProductComponentModel(object):
 
                 
         # Calculating aggregated values     
-        #self.o_cm = np.einsum('tpc->t', self.o_tpc)
         self.o_pr = self.i_pr - self.ds_pr 
         self.o_cm = self.i_cm - self.ds_pr 
         self.oc_pr = np.einsum('tpc->tp', self.o_tpc - self.replacement_tpc_cm)
         self.oc_cm = np.einsum('tpc->tc', self.o_tpc)
         self.sc_pr  = np.einsum('tpc->tp', self.s_tpc)
         self.sc_cm  = np.einsum('tpc->tc', self.s_tpc)
-        return self.s_tpc, self.i_pr, self.i_cm, self.o_pr, self.o_cm
 
 
         
     def case_6(self, max_age_cm_reuse=None):
         '''
-        Products and components have independent lifetimes. Potential failure of the componentscomponents is not included in the lifetime of the product. 
-        Components can be replaced and/or reused. If the product fails but the status of the components is still good, the components can be reused in another product. 
-        If the components fails but the product is still in good shape, a new components can be used to make the product operational again. Since the lifetimes of the 
-        product and the components are independent, replacing the components should have no effect on the product's lifetime. Similarly, a components that is reused in 
-        another product keeps its age and lifetime. Such a model would probably use parameters and transfer coefficients to determine the share of products and 
-        components that will be reused depending on their age.
-
-        Assuming that all components that flow out in the vehicles are reusable would lead to an overestimation of the amount of components that are actually
-        fit to be reused. Instead, a logic is needed here to make a reasonable assumption. We reuse only the share of components that would be still be 
-        usable according to their own technical lifetime. This logic can be further developed to use only the share of components that will be still useful
-        for a specified minimum amount of time tau. The same logic is applied to the amount of products that is eligible to get a components replacement.
-
-        As a first priority, vehicles will get a replacement from reused components. If these are not enough, new components fill the gap. 
+        Products and components have independent hazard functions. Potential failure of the component is not included in the hazard function of the product. 
+        Components can be reused, and they can be replaced. If the component fails, the product is can get a replacement according to the replacement_coeff. 
+        As a first priority, the replacement component would be a reused one from the same cohort. 
+        
+        If the reusable components of the same cohort are not enough for the demand of replacement, newer cohorts are used. 
+        
+        Once all reused components have been installed in replacements, and if there is still a demand for component replacement, new components are used. 
+        
+        The stock composition of the product is no longer equal to the stock composition of the component, but the total stock is. 
         '''
         
         if self.s_pr is None:
             raise Exception('No stock specified')
-            return None, None, None, None, None
         if self.lt_pr is  None: 
             raise Exception('No product lifetime specified')
-            return None, None, None, None, None
         if self.lt_cm is None:
             raise Exception('No component lifetime specified')
-            return None, None, None, None, None
+        if self.replacement_coeff is None:
+            raise Exception('No replacement coefficient specified')
+        if self.reuse_coeff is None:
+            raise Exception('No reuse coefficient specified')
         
         # stock composition per year, product cohort and component cohort
         self.s_tpc = np.zeros((len(self.t), len(self.t), len(self.t))) #
@@ -1395,128 +1108,13 @@ class ProductComponentModel(object):
             self.oc_cm[m,m] = self.o_tpc[m,:m+1,m].sum()
 
         # Calculating aggregated values                    
-        self.o_pr =  self.i_pr - self.ds_pr 
+        self.o_pr = self.i_pr - self.ds_pr 
         self.o_cm = self.i_cm - self.ds_pr 
+        self.oc_pr = np.einsum('tpc->tp', self.o_tpc - self.replacement_tpc_cm)
+        self.oc_cm = np.einsum('tpc->tc', self.o_tpc)
         self.sc_pr  = np.einsum('tpc->tp', self.s_tpc)
         self.sc_cm  = np.einsum('tpc->tc', self.s_tpc)
 
-        # self.o_pr = np.einsum('tpc->t', self.o_tpc - self.replacement_tpc_cm)
-        # self.o_cm = np.einsum('tpc->t', self.o_tpc)
-        # self.oc_pr = np.einsum('tpc->tp', self.o_tpc - self.replacement_tpc_cm)
-        # self.oc_cm = np.einsum('tpc->tc', self.o_tpc)
-        # self.sc_pr  = np.einsum('tpc->tp', self.s_tpc)
-        # self.sc_cm  = np.einsum('tpc->tc', self.s_tpc)
-        return self.s_tpc, self.i_pr, self.i_cm, self.o_pr, self.o_cm
-
-
-    def case_6_old(self):
-        '''
-        Products and components have independent lifetimes. Potential failure of the componentscomponents is not included in the lifetime of the product. 
-        Components can be replaced and/or reused. If the product fails but the status of the components is still good, the components can be reused in another product. 
-        If the components fails but the product is still in good shape, a new components can be used to make the product operational again. Since the lifetimes of the 
-        product and the components are independent, replacing the components should have no effect on the product's lifetime. Similarly, a components that is reused in 
-        another product keeps its age and lifetime. Such a model would probably use parameters and transfer coefficients to determine the share of products and 
-        components that will be reused depending on their age.
-
-        Assuming that all components that flow out in the vehicles are reusable would lead to an overestimation of the amount of components that are actually
-        fit to be reused. Instead, a logic is needed here to make a reasonable assumption. We reuse only the share of components that would be still be 
-        usable according to their own technical lifetime. This logic can be further developed to use only the share of components that will be still useful
-        for a specified minimum amount of time tau. The same logic is applied to the amount of products that is eligible to get a components replacement.
-
-        As a first priority, vehicles will get a replacement from reused components. If these are not enough, new components fill the gap. 
-        '''
-        if self.s_pr is not None:
-            if self.lt_pr is not None: 
-                if self.lt_cm is not None:
-                    if self.tau_pr is not None:
-                        if self.reuse_coeff is not None: 
-                            self.s_cm = self.s_pr #both stocks are always equal
-                            self.sc_pr = np.zeros((len(self.t), len(self.t)))
-                            self.oc_pr = np.zeros((len(self.t), len(self.t)))
-                            self.i_pr = np.zeros(len(self.t))
-                            self.sc_cm = np.zeros((len(self.t), len(self.t)))
-                            self.oc_cm = np.zeros((len(self.t), len(self.t)))
-                            self.i_cm = np.zeros(len(self.t))                 
-                            self.oc_due_to_pr = np.zeros((len(self.t), len(self.t))) #outflows caused by product failure
-                            self.oc_due_to_cm = np.zeros((len(self.t), len(self.t))) #outflows caused by component failure
-                            self.oc_both = np.zeros((len(self.t), len(self.t))) #outflows caused by "simultaneous" failure on the same year
-                            self.ds_pr = np.concatenate((np.array([0]), np.diff(self.s_pr)))
-                            self.o_cm = np.zeros(len(self.t))
-                            self.o_pr = np.zeros(len(self.t))
-                            self.replacements = np.zeros((len(self.t), len(self.t)))
-                            self.reused_cm = np.zeros((len(self.t), len(self.t)))
-
-                            # construct the sf of a product of cohort tc remaining in the stock in year t
-                            self.compute_sf_pr_tau() # Computes sf if not present already.
-                            self.compute_sf_cm() # Computes sf of component if not present already.
-                            
-                            # Initializing values
-                            self.sc_pr[0,0] = self.s_pr[0]
-                            if self.sf_pr[0, 0] != 0: # Else, inflow is 0.
-                                self.i_pr[0] = self.s_pr[0] / self.sf_pr[0, 0]
-                            self.sc_pr[:len(self.t), 0] = self.i_pr[0] * self.sf_pr[:len(self.t), 0] # Future decay of age-cohort of year 0.
-                            self.oc_pr[0, 0] = self.i_pr[0] - self.sc_pr[0, 0]
-                            # The intial values are the same for the component
-                            self.sc_cm[0,0] = self.sc_pr[0,0]
-                            self.o_cm[0] = 0 
-                            self.i_cm[0] = self.i_pr[0]
-                            
-                            # all other years:            
-                            for m in range(1, len(self.t)):  # for all years m, starting in second year
-                                # 1) Compute outflow from previous age-cohorts up to m-1
-                                if self.sf_pr[m,m] != 0 and self.sf_cm[m,m] != 0: # Else, inflow is 0.
-                                    for c in range(m):
-                                        # Calculating outflows attributed to product failures, correcting for lower value of remaining stock 
-                                        if self.sf_pr[m-1,c] !=0:
-                                            self.oc_due_to_pr[m, c] = self.sc_pr[m-1, c] / self.sf_pr[m-1, c] * abs(self.sf_pr[m, c] - self.sf_pr[m-1, c])
-                                        # Calculating outflows attributed to component failures, correcting for lower value of remaining stock
-                                        if self.sf_cm[m-1,c] !=0:
-                                            self.oc_due_to_cm[m, c] = self.sc_cm[m-1, c] / self.sf_cm[m-1,c] * abs(self.sf_cm[m, c] - self.sf_cm[m-1, c])
-                                        # Calculating outflows where both product and components failed during the year
-                                        if self.sc_pr[m-1, c]!=0:
-                                            self.oc_both[m, c] = self.oc_due_to_pr[m, c] / self.sc_pr[m-1, c] * self.oc_due_to_cm[m, c]
-                                    # Correcting outflows to avoid double counting
-                                    self.oc_due_to_pr[m, 0:m] -=  self.oc_both[m,  0:m]
-                                    self.oc_due_to_cm[m, 0:m] -=  self.oc_both[m,  0:m]
-                                    # Calculating share of components that is still useful according to their survival probability in tau years relative to the year of outflow
-                                    if self.sf_cm[m,m] != 0:
-                                        self.reused_cm[m,0:m] = self.oc_due_to_pr[m,0:m] * self.reuse_coeff # * (self.sf_cm[m+self.tau_cm, 0:m] / self.sf_cm[m, 0:m])
-                                    # Calculating share of components that is still useful according to their survival probability in tau years relative to the year of outflow
-                                    if self.sf_pr[m,m] != 0:
-                                        # The share of products that gets a replacement is only the share that is expected to remain in use for at least tau_pr more years
-                                        self.replacements[m,0:m] = self.oc_due_to_cm[m,0:m] * (self.sf_pr[m+self.tau_pr, 0:m] / self.sf_pr[m, 0:m])
-                                    # Calculating actual outflows after component has been replaced
-                                    self.oc_cm[m, 0:m] =  self.oc_due_to_pr[m, 0:m] + self.oc_due_to_cm[m, 0:m] + self.oc_both[m,  0:m] - self.reused_cm[m,0:m] 
-                                    self.oc_pr[m, 0:m] =  self.oc_due_to_pr[m, 0:m] + self.oc_due_to_cm[m, 0:m] + self.oc_both[m,  0:m] - self.replacements[m,0:m]
-                                    # Computing real stock
-                                    self.sc_pr[m,0:m] = self.sc_pr[m-1,0:m] - self.oc_pr[m, 0:m]
-                                    self.sc_cm[m,0:m] = self.sc_cm[m-1,0:m] - self.oc_cm[m, 0:m]
-                                    # 2) Determine inflow from mass balance:
-                                    if self.sf_pr[m,m] != 0: # Else, inflow is 0.
-                                        #TODO: Do you agree with this approach for the inflows?
-                                        # Since the reuse and replacements have already been accounted for in the ouflows, we don't need to subtract them here again
-                                        self.i_cm[m] = (self.s_cm[m] - self.sc_cm[m, :].sum()) / self.sf_cm[m,m]  # Inflows of component depend on reuse rate
-                                        self.i_pr[m] = (self.s_pr[m] - self.sc_pr[m, :].sum()) / self.sf_pr[m,m] # Inflows of product depend on the replacement rate
-                                # 3) Add new inflow to stock 
-                                    self.sc_pr[m,m] = self.i_pr[m]
-                                    self.sc_cm[m,m] = self.i_cm[m]
-                            self.o_pr = self.oc_pr.sum(axis=1)
-                            self.o_cm = self.oc_cm.sum(axis=1)
-                            return self.sc_pr, self.i_pr, self.i_cm, self.oc_pr
-                        else: 
-                            raise Exception('No reuse coefficient specified')
-                    else:
-                        raise Exception('No delay coefficient specified for product tau_pr')
-                else:
-                    raise Exception('No component lifetime specified')
-                    return None, None, None, None, None, None
-            else:
-                raise Exception('No product lifetime specified')
-                return None, None, None, None, None, None
-        else:
-            raise Exception('No stock specified')
-            return None, None, None, None, None, None    
-    
     def case_7(self):
         '''
         The model does not use lifetimes at all. It would make sense if the inflows of products and components are calculated as a percentage of 
