@@ -1534,7 +1534,6 @@ class ProductComponentModel(object):
 
         We take the share of components that is exiting use due to product crashes and take a share for reuse according to the reuse_coeff.
          
-        Since there is a leaching approach, we do not know the cohort of the products being crashed and therefore we have to assume that the components will be fit for reuse for a full component lifetime. 
         '''
         if self.s_pr is None:
             raise Exception('No stock specified')
