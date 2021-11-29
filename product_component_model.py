@@ -1107,8 +1107,8 @@ class ProductComponentModel(object):
         # Calculating aggregated values                    
         self.o_pr = self.i_pr - self.ds_pr 
         self.o_cm = self.i_cm - self.ds_pr 
-        self.oc_pr = np.einsum('tpc->tp', self.o_tpc - self.replacement_tpc_cm)
-        self.oc_cm = np.einsum('tpc->tc', self.o_tpc)
+        # self.oc_pr = np.einsum('tpc->tp', self.o_tpc)
+        # self.oc_cm = np.einsum('tpc->tc', self.o_tpc)
         self.sc_pr  = np.einsum('tpc->tp', self.s_tpc)
         self.sc_cm  = np.einsum('tpc->tc', self.s_tpc)
 
