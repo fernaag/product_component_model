@@ -1056,8 +1056,10 @@ class ProductComponentModel(object):
                         products_for_replacements[p] -= self.replace_reuse_tpc[m,p,c]
                         components_for_reuse[c] -= self.replace_reuse_tpc[m,p,c]
                         if components_for_reuse[c]==0:
+                            print('c=',c)
                             c+=1
                         if products_for_replacements[p]==0:
+                            print('p=', p)
                             p+=1
                   
 
