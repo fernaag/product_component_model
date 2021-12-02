@@ -327,12 +327,13 @@ class ProductComponentModel(object):
         if self.sf_pr is None:
             print("survival function not defined")
         else:
-            for m in range(0, len(self.t)-1): 
-                self.hz_pr[m,m] = 1-self.sf_pr[m,m] #sf is equal to 1 at the beginning of the first year
-                if self.sf_pr[m:-1,m] != 0: 
-                    self.hz_pr[m+1:,m] = (self.sf_pr[m:-1,m] - self.sf_pr[m+1::,m]) / self.sf_pr[m:-1,m]
-                else:
-                    self.hz_pr[m+1:,m] = 1
+            for n in range(len(self.t)):
+                self.hz_pr[n,n] = 1-self.sf_pr[n,n] #sf is equal to 1 at the beginning of the first year
+                for m in range(n, len(self.t)-1): 
+                    if self.sf_pr[m,n] != 0:
+                        self.hz_pr[m+1,n] = (self.sf_pr[m,n] - self.sf_pr[m+1,n]) / self.sf_pr[m,n]
+                    else:
+                        self.hz_pr[m+1,n] = 1
         return self.hz_pr
 
     def compute_hz_cm(self): # hazard functions
@@ -344,12 +345,29 @@ class ProductComponentModel(object):
         if self.sf_cm is None:
             print("survival function not defined")
         else:
+            for n in range(len(self.t)):
+                self.hz_cm[n,n] = 1-self.sf_cm[n,n] #sf is equal to 1 at the beginning of the first year
+                for m in range(n, len(self.t)-1): 
+                    if self.sf_cm[m,n] != 0:
+                        self.hz_cm[m+1,n] = (self.sf_cm[m,n] - self.sf_cm[m+1,n]) / self.sf_cm[m,n]
+                    else:
+                        self.hz_cm[m+1,n] = 1
+        return self.hz_cm
+
+    def compute_hz_cm_old(self): # hazard functions
+        """
+        Hazard table self.hz_cm(m,n) denotes the probability of failing during year m 
+        for a component inflow from year n (age-cohort) still present at the beginning of year m (after m-n years).
+        """
+        self.hz_cm = np.zeros((len(self.t), len(self.t)))
+        if self.sf_cm is None:
+            print("survival function not defined")
+        else:
             for m in range(0, len(self.t)-1): 
                 self.hz_cm[m,m] = 1-self.sf_cm[m,m] #sf is equal to 1 at the beginning of the first year
-                if self.sf_cm[m:-1,m] != 0: 
-                    self.hz_cm[m+1:,m] = (self.sf_cm[m:-1,m] - self.sf_cm[m+1::,m]) / self.sf_cm[m:-1,m] 
-                else:
-                    self.hz_cm[m+1:,m] = 1
+
+                self.hz_cm[m+1:,m] = (self.sf_cm[m:-1,m] - self.sf_cm[m+1::,m]) / self.sf_cm[m:-1,m] 
+
         return self.hz_cm
 
     
@@ -1062,10 +1080,8 @@ class ProductComponentModel(object):
                         products_for_replacements[p] -= self.replace_reuse_tpc[m,p,c]
                         components_for_reuse[c] -= self.replace_reuse_tpc[m,p,c]
                         if components_for_reuse[c]==0:
-                            print('c=',c)
                             c+=1
                         if products_for_replacements[p]==0:
-                            print('p=', p)
                             p+=1
                   
 
