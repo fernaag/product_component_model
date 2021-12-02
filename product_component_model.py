@@ -328,8 +328,11 @@ class ProductComponentModel(object):
             print("survival function not defined")
         else:
             for m in range(0, len(self.t)-1): 
-                self.hz_pr [m,m] = 1-self.sf_pr[m,m] #sf is equal to 1 at the beginning of the first year
-                self.hz_pr [m+1:,m] = (self.sf_pr[m:-1,m] - self.sf_pr[m+1::,m]) / self.sf_pr[m:-1,m]
+                self.hz_pr[m,m] = 1-self.sf_pr[m,m] #sf is equal to 1 at the beginning of the first year
+                if self.sf_pr[m:-1,m] != 0: 
+                    self.hz_pr[m+1:,m] = (self.sf_pr[m:-1,m] - self.sf_pr[m+1::,m]) / self.sf_pr[m:-1,m]
+                else:
+                    self.hz_pr[m+1:,m] = 1
         return self.hz_pr
 
     def compute_hz_cm(self): # hazard functions
@@ -342,8 +345,11 @@ class ProductComponentModel(object):
             print("survival function not defined")
         else:
             for m in range(0, len(self.t)-1): 
-                self.hz_cm [m,m] = 1-self.sf_cm[m,m] #sf is equal to 1 at the beginning of the first year
-                self.hz_cm [m+1:,m] = (self.sf_cm[m:-1,m] - self.sf_cm[m+1::,m]) / self.sf_cm[m:-1,m] 
+                self.hz_cm[m,m] = 1-self.sf_cm[m,m] #sf is equal to 1 at the beginning of the first year
+                if self.sf_cm[m:-1,m] != 0: 
+                    self.hz_cm[m+1:,m] = (self.sf_cm[m:-1,m] - self.sf_cm[m+1::,m]) / self.sf_cm[m:-1,m] 
+                else:
+                    self.hz_cm[m+1:,m] = 1
         return self.hz_cm
 
     
@@ -1024,7 +1030,7 @@ class ProductComponentModel(object):
                 products_for_replacements =  np.einsum('pc -> p', 
                                                        self.replacement_tpc_cm[m,:m,:m])
                 p = 0
-                while products_for_replacements.sum() > demand_pr and p < m:
+                while (products_for_replacements.sum() > demand_pr) and (p < m):
                     if products_for_replacements[p+1:].sum() > demand_pr:
                         products_for_replacements[p] = 0
                     else:
@@ -1038,7 +1044,7 @@ class ProductComponentModel(object):
                 components_for_reuse =  np.einsum('pc -> c', 
                                                  self.reuse_tpc_cm[m,:m,oldest_cohort:m])
                 c = oldest_cohort
-                while components_for_reuse.sum() > demand_pr and c < m:
+                while (components_for_reuse.sum() > demand_pr) and (c < m):
                     if components_for_reuse[c+1:].sum() > demand_pr:
                         components_for_reuse[c] = 0
                     else:
@@ -1049,7 +1055,7 @@ class ProductComponentModel(object):
                                 
                 # the oldest components are reused in the oldest products
                 # in need for a component replacement
-                while p < m and c < m: 
+                while (p < m) and (c < m): 
                         self.replace_reuse_tpc[m,p,c] = min(
                                 products_for_replacements[p],
                                 components_for_reuse[c])
@@ -1615,7 +1621,7 @@ class ProductComponentModel(object):
                                                        self.replacement_tpc_cm[m,:m,:m])
                 
                 p = 0
-                while products_for_replacements.sum() > demand_pr and p < m:
+                while(products_for_replacements.sum() > demand_pr) and (p < m):
                     if products_for_replacements[p+1:].sum() > demand_pr:
                         products_for_replacements[p] = 0
                     else:
@@ -1627,7 +1633,7 @@ class ProductComponentModel(object):
                 components_for_reuse =  np.einsum('pc -> c', 
                                                  self.reuse_tpc_cm[m,:m,:m])
                 
-                while components_for_reuse.sum() > demand_pr and c < m:
+                while (components_for_reuse.sum() > demand_pr) and ( c< m):
                     if components_for_reuse[c+1:].sum() > demand_pr:
                         components_for_reuse[c] = 0
                     else:
@@ -1636,7 +1642,7 @@ class ProductComponentModel(object):
                     
                 # the oldest components are reused in the oldest products
                 # in need for a component replacement
-                while p < m and c < m: 
+                while (p < m) and (c < m): 
                         self.replace_reuse_tpc[m,p,c] = min(
                                 products_for_replacements[p],
                                 components_for_reuse[c])
