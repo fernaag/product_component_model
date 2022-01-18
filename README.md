@@ -1,4 +1,4 @@
-# A product-component framework for modelling stock dynamics and its application for Li-ion batteries and electric vehicles
+# A product-component framework for modelling stock dynamics and its application for lithium-ion batteries and electric vehicles
 ## Documentation of the code used for the different modelling approaches
 
 This repository contains the data and algorithms used to compute the different modelling approaches presented in the related publication (add link here if ever published).
