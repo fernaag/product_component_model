@@ -7,6 +7,6 @@ The main files contaned here are:
 1. product_component_model.py: Python class for handling of stock dynamics of product-component-systems. This is the main script containing the generic definitions for each modelling approach. It can be used to compute the stock dynamics of a product-component-system under any of the 12 modelling approaces introduced.
 2. case_study.ipynb: Notebook containing the case study presented in the manuscript and supplementary information.
 3. generic_cohort_model.ipynb: Notebook presenting the different modelling approaches for a generic stock that highlights the differences in outcomes for a stock that initially increases, then stabilizes, and ultimately decreases again.
-4. cases_visualizations.ipynb: Notebook containing a multi visualization of all cases under the same lifetime assumptions but where the dynamics where calculated using the different modelling options for a generic stock as presented in poin 3.
+4. cases_visualizations.ipynb: Notebook containing a multi visualization of all cases under the same lifetime assumptions but where the dynamics where calculated using the different modelling options for a generic stock as presented in point 3.
 
-In addition, the data folder contains all data used for this study.
+In addition, the data folder contains all inout data used for this study and relevant output data.
